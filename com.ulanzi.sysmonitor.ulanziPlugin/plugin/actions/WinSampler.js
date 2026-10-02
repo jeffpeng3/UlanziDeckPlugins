@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { Utils } from './ulanzi-api/index.js';
 
 // Windows 常駐採樣：只起一個 powershell process，每秒吐一次數據
 // 只查畫面上有在顯示的項目，不需要的查詢不跑
@@ -43,6 +44,17 @@ class WinSampler {
     this.sampleAt = 0;
     this.counts = {};
     this.retryAt = 0;
+    this.gotData = false;
+    this.useExe = true;
+  }
+
+  // Rust 版 exe 優先，跑不起來就退回 powershell 迴圈
+  exePath() {
+    try {
+      return Utils.getPluginPath() + '/bin/win-x64/winquery.exe';
+    } catch (e) {
+      return null;
+    }
   }
 
   kinds() {
@@ -72,6 +84,47 @@ class WinSampler {
     // process 意外死掉不要立刻重起，避免重試風暴
     if (Date.now() < this.retryAt) return;
     if (this.kinds().length === 0) return;
+    if (this.useExe) {
+      if (this.startExe()) return;
+      // exe 不存在或起不來，永久退回 powershell
+      this.useExe = false;
+    }
+    this.startPs();
+  }
+
+  // Rust 查詢器：同樣一行一包 JSON，零 process 開銷
+  startExe() {
+    const exe = this.exePath();
+    if (!exe) return false;
+    try {
+      const proc = spawn(exe, [], { windowsHide: true });
+      this.proc = proc;
+      this.buf = '';
+      this.gotData = false;
+      proc.stdout.on('data', chunk => this.onData(String(chunk)));
+      proc.on('close', () => {
+        if (this.proc === proc) this.proc = null;
+        // 有成功吐過資料才值得重試，否則退回 powershell
+        if (this.gotData) {
+          this.retryAt = Date.now() + 5000;
+        } else {
+          this.useExe = false;
+        }
+      });
+      proc.on('error', () => {
+        if (this.proc === proc) this.proc = null;
+        this.useExe = false;
+      });
+      return true;
+    } catch (e) {
+      this.proc = null;
+      this.useExe = false;
+      return false;
+    }
+  }
+
+  // 備援：powershell 迴圈，協定相同
+  startPs() {
     try {
       const proc = spawn('powershell.exe',
         ['-NoProfile', '-NonInteractive', '-Command', buildScript(this.kinds())],
@@ -110,6 +163,7 @@ class WinSampler {
       try {
         this.sample = JSON.parse(s);
         this.sampleAt = Date.now();
+        this.gotData = true;
       } catch (e) { /* 半包等下次 */ }
     }
   }
