@@ -55,7 +55,10 @@ export default function SysMonitor(context, $UD) {
   }
 
   function refreshIntervalMs() {
-    return Shared.ms;
+    // 重度讀取保底，避免 PowerShell 和 WMI 把 CPU 吃滿
+    const floors = { disk: 2000, diskio: 2000, net: 2000, gpu: 3000 };
+    const floor = floors[metricKey()] || 0;
+    return Math.max(Shared.ms, floor);
   }
 
   // 走勢固定顯示過去 60 秒，靠右對齊持續捲動
@@ -102,8 +105,29 @@ export default function SysMonitor(context, $UD) {
     return [0];
   }
 
-  // si 只合併 nvidia-smi 的使用率，非 N 卡或抓不到就直調 nvidia-smi
+  // nvidia-smi 單一 process 最省，優先用；拿不到才用 si.graphics
   async function readGpuUse() {
+    const want = (settings.gpu || '').trim();
+    // 有指定名稱關鍵字就走 si.graphics 才選得到卡
+    if (want && !/^\d+$/.test(want)) {
+      const u = await readGpuSi();
+      if (u != null) return u;
+    }
+    try {
+      const args = /^\d+$/.test(want)
+        ? ['-i', want, '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits']
+        : ['--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'];
+      const out = await execCmd('nvidia-smi', args);
+      const m = String(out).match(/(\d+(\.\d+)?)/);
+      if (m) return clamp(Number(m[1]));
+    } catch (e) {
+      console.log('==gpu nvidia-smi failed:', e && e.message);
+    }
+    const u = await readGpuSi();
+    return u != null ? u : 0;
+  }
+
+  async function readGpuSi() {
     try {
       const g = await si.graphics().catch(() => null);
       const ctrls = (g && g.controllers) || [];
@@ -115,15 +139,7 @@ export default function SysMonitor(context, $UD) {
     } catch (e) {
       console.log('==gpu si.graphics failed:', e && e.message);
     }
-    try {
-      const out = await execCmd('nvidia-smi',
-        ['--query-gpu=utilization.gpu', '--format=csv,noheader,nounits']);
-      const m = String(out).match(/(\d+(\.\d+)?)/);
-      if (m) return clamp(Number(m[1]));
-    } catch (e) {
-      console.log('==gpu nvidia-smi failed:', e && e.message);
-    }
-    return 0;
+    return null;
   }
 
   function pickGpu(ctrls) {
@@ -224,7 +240,12 @@ export default function SysMonitor(context, $UD) {
     return v;
   }
 
+  var busy = false;
+
   async function collectAndDraw() {
+    // 上次讀取還沒回來就跳過，避免 process 堆積
+    if (busy) return;
+    busy = true;
     try {
       const vals = await readStats();
       const now = Date.now();
@@ -235,6 +256,8 @@ export default function SysMonitor(context, $UD) {
       drawIcon(vals);
     } catch (e) {
       console.log('==sysmonitor read error:', e);
+    } finally {
+      busy = false;
     }
   }
 
