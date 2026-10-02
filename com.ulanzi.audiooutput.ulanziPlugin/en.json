@@ -1,0 +1,19 @@
+{
+  "Name": "Audio Output Switcher",
+  "Description": "Cycle default playback device: speaker -> bluetooth -> headphone (Windows)",
+  "Actions": [
+    {
+      "Name": "Cycle Output",
+      "Tooltip": "Cycle default playback: speaker -> bluetooth -> headphone"
+    }
+  ],
+  "Localization": {
+    "Audio Output": "Audio Output",
+    "Show device name on key": "Show device name on key",
+    "Current Device": "Current Device",
+    "Refresh List": "Refresh List",
+    "Device List": "Device List",
+    "No devices found": "No devices found",
+    "Switching order": "Switching order: speaker -> bluetooth -> headphone -> speaker"
+  }
+}

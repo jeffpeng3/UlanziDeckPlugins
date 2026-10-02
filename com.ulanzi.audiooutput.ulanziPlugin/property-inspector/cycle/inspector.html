@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+    content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,minimal-ui,viewport-fit=cover" />
+  <title>Audio Output</title>
+  <link rel="stylesheet" href="../../libs/css/uspi.css">
+  <style>
+    .uspi-item-label { width: 112px; }
+    #device-list { font-size: 12px; line-height: 1.6; max-height: 160px; overflow-y: auto; }
+    #device-list .dev { padding: 2px 0; word-break: break-all; white-space: normal; }
+    #device-list .cur { font-weight: bold; }
+    #device-list .cat { opacity: 0.65; }
+  </style>
+</head>
+
+<body>
+  <div class="udpi-wrapper hidden uspi-wrapper">
+
+    <form id="property-inspector">
+      <div class="uspi-heading" data-localize>Audio Output</div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-value">
+          <div class="uspi-item-child">
+            <input id="showName" type="checkbox" name="showName" checked />
+            <label for="showName" data-localize>Show device name on key</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>Current Device</div>
+        <div class="uspi-item-value" id="current-device">-</div>
+      </div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>Device List</div>
+        <div class="uspi-item-value">
+          <button type="button" id="refresh-btn" data-localize>Refresh List</button>
+        </div>
+      </div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-value" id="device-list"></div>
+      </div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-value" data-localize>Switching order</div>
+      </div>
+    </form>
+
+  </div>
+
+  <script src="../../libs/js/constants.js"></script>
+  <script src="../../libs/js/eventEmitter.js"></script>
+  <script src="../../libs/js/timers.js"></script>
+  <script src="../../libs/js/utils.js"></script>
+  <script src="../../libs/js/ulanziApi.js"></script>
+  <script src="./inspector.js"></script>
+
+</body>
+
+</html>

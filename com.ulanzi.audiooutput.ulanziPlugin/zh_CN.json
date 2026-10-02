@@ -1,0 +1,19 @@
+{
+  "Name": "音频输出切换",
+  "Description": "循环切换默认播放设备：音箱 -> 蓝牙 -> 耳机（Windows）",
+  "Actions": [
+    {
+      "Name": "循环切换输出",
+      "Tooltip": "循环切换默认播放设备：音箱 -> 蓝牙 -> 耳机"
+    }
+  ],
+  "Localization": {
+    "Audio Output": "音频输出",
+    "Show device name on key": "在按键上显示设备名",
+    "Current Device": "当前设备",
+    "Refresh List": "刷新列表",
+    "Device List": "设备列表",
+    "No devices found": "未找到设备",
+    "Switching order": "切换顺序：音箱 -> 蓝牙 -> 耳机 -> 音箱"
+  }
+}

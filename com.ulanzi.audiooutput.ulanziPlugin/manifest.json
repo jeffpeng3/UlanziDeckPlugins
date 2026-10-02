@@ -1,0 +1,54 @@
+{
+  "Version": "1.0.0",
+  "Author": "Ulanzi",
+  "Name": "Audio Output Switcher",
+  "Description": "Cycle default playback device: speaker -> bluetooth -> headphone (Windows)",
+  "Icon": "assets/icons/pluginIcon.png",
+  "Category": "Audio Output Switcher",
+  "CategoryIcon": "assets/icons/category.png",
+  "CodePath": "dist/app.js",
+  "Type": "JavaScript",
+  "Inspect": "--inspect=127.0.0.1:9203",
+  "PrivateAPI": true,
+  "SupportedInMultiActions": false,
+  "UUID": "com.ulanzi.ulanzistudio.audiooutput",
+  "Actions": [
+    {
+      "Name": "Cycle Output",
+      "Icon": "assets/icons/action-speaker.svg",
+      "PropertyInspectorPath": "property-inspector/cycle/inspector.html",
+      "state": 0,
+      "States": [
+        {
+          "Name": "Speaker",
+          "Image": "assets/icons/action-speaker.svg"
+        },
+        {
+          "Name": "Bluetooth",
+          "Image": "assets/icons/action-bluetooth.svg"
+        },
+        {
+          "Name": "Headphone",
+          "Image": "assets/icons/action-headphone.svg"
+        }
+      ],
+      "Tooltip": "Cycle default playback: speaker -> bluetooth -> headphone",
+      "UUID": "com.ulanzi.ulanzistudio.audiooutput.cycle",
+      "SupportedInMultiActions": false,
+      "DisableAutomaticStates": true,
+      "Controllers": [
+        "Keypad"
+      ],
+      "Devices": []
+    }
+  ],
+  "OS": [
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    }
+  ],
+  "Software": {
+    "MinVersion": "2.1.4"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "Name": "音訊輸出切換",
+  "Description": "循環切換預設播放裝置：喇叭 -> 藍芽 -> 耳機（Windows）",
+  "Actions": [
+    {
+      "Name": "循環切換輸出",
+      "Tooltip": "循環切換預設播放裝置：喇叭 -> 藍芽 -> 耳機"
+    }
+  ],
+  "Localization": {
+    "Audio Output": "音訊輸出",
+    "Show device name on key": "在按鍵上顯示裝置名",
+    "Current Device": "目前裝置",
+    "Refresh List": "重新整理",
+    "Device List": "裝置列表",
+    "No devices found": "找不到裝置",
+    "Switching order": "切換順序：喇叭 -> 藍芽 -> 耳機 -> 喇叭"
+  }
+}
