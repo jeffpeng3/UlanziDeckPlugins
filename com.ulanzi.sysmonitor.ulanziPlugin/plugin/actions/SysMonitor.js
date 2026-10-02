@@ -58,10 +58,10 @@ export default function SysMonitor(context, $UD) {
   }
 
   function refreshIntervalMs() {
-    // Windows 讀快取不花 process，只剩 gpu 還會起 process所以保底
-    // 非 Windows 照舊，si 每次呼叫都會起 process
+    // Windows 讀快取不花 process，全部跟隨共用間隔
+    // 非 Windows 照舊，si 每次呼叫都會起 process所以保底
     const floors = IS_WIN
-      ? { gpu: 3000 }
+      ? {}
       : { disk: 2000, diskio: 2000, net: 2000, gpu: 3000 };
     const floor = floors[metricKey()] || 0;
     return Math.max(Shared.ms, floor);
