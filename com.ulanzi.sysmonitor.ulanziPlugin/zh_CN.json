@@ -21,6 +21,10 @@
     {
       "Name": "網路",
       "Tooltip": "顯示網路上下傳速率"
+    },
+    {
+      "Name": "顯示卡監控",
+      "Tooltip": "顯示顯卡使用率與走勢圖"
     }
   ],
   "Localization": {
@@ -34,6 +38,8 @@
     "Disk IO": "硬碟讀寫",
     "Network": "網路",
     "Mount point": "掛載點",
-    "Interface": "網路卡"
+    "Interface": "網路卡",
+    "GPU Monitor": "顯示卡監控",
+    "GPU select": "顯卡選擇"
   }
 }

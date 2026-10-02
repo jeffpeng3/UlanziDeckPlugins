@@ -37,14 +37,15 @@ export default function SysMonitor(context, $UD) {
     history = [],
     $UD = $UD;
 
-  const TITLES = { cpu: 'CPU', mem: 'Memory', disk: 'Disk', diskio: 'Disk IO', net: 'Net' };
+  const TITLES = { cpu: 'CPU', mem: 'Memory', disk: 'Disk', diskio: 'Disk IO', net: 'Net', gpu: 'GPU' };
 
   function metricKey() {
     const m = settings.metric;
-    if (m === 'cpu' || m === 'mem' || m === 'disk' || m === 'diskio' || m === 'net') return m;
+    if (m === 'cpu' || m === 'mem' || m === 'disk' || m === 'diskio' || m === 'net' || m === 'gpu') return m;
     if (context.indexOf('.diskio') >= 0) return 'diskio';
     if (context.indexOf('.disk') >= 0) return 'disk';
     if (context.indexOf('.net') >= 0) return 'net';
+    if (context.indexOf('.gpu') >= 0) return 'gpu';
     if (context.indexOf('.mem') >= 0) return 'mem';
     return 'cpu';
   }
@@ -95,7 +96,49 @@ export default function SysMonitor(context, $UD) {
     if (key === 'net') {
       return await readNet();
     }
+    if (key === 'gpu') {
+      return [await readGpuUse()];
+    }
     return [0];
+  }
+
+  // si 只合併 nvidia-smi 的使用率，非 N 卡或抓不到就直調 nvidia-smi
+  async function readGpuUse() {
+    try {
+      const g = await si.graphics().catch(() => null);
+      const ctrls = (g && g.controllers) || [];
+      const sel = pickGpu(ctrls);
+      if (sel) {
+        const u = Number(sel.utilizationGpu);
+        if (Number.isFinite(u)) return clamp(u);
+      }
+    } catch (e) {
+      console.log('==gpu si.graphics failed:', e && e.message);
+    }
+    try {
+      const out = await execCmd('nvidia-smi',
+        ['--query-gpu=utilization.gpu', '--format=csv,noheader,nounits']);
+      const m = String(out).match(/(\d+(\.\d+)?)/);
+      if (m) return clamp(Number(m[1]));
+    } catch (e) {
+      console.log('==gpu nvidia-smi failed:', e && e.message);
+    }
+    return 0;
+  }
+
+  function pickGpu(ctrls) {
+    if (!ctrls || ctrls.length === 0) return null;
+    const want = (settings.gpu || '').trim().toLowerCase();
+    if (want) {
+      if (/^\d+$/.test(want) && ctrls[Number(want)]) return ctrls[Number(want)];
+      const hit = ctrls.find(c =>
+        String(c.model || '').toLowerCase().includes(want) ||
+        String(c.name || '').toLowerCase().includes(want) ||
+        String(c.vendor || '').toLowerCase().includes(want));
+      if (hit) return hit;
+    }
+    return ctrls.find(c => Number.isFinite(Number(c.utilizationGpu)))
+        || ctrls[0];
   }
 
   // systeminformation v5 的 disksIO 在 Windows 沒實作，直接回 null

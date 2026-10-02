@@ -1,5 +1,5 @@
 {
-  "Version": "1.1.0",
+  "Version": "1.2.0",
   "Author": "Ulanzi",
   "Name": "System Monitor",
   "Description": "CPU / Memory / Disk / Network monitor for D200",
@@ -26,8 +26,12 @@
       "Tooltip": "Show CPU usage with trend chart",
       "UUID": "com.ulanzi.ulanzistudio.sysmonitor.cpu",
       "SupportedInMultiActions": false,
-      "Controllers": ["Keypad"],
-      "Devices": ["D200"]
+      "Controllers": [
+        "Keypad"
+      ],
+      "Devices": [
+        "D200"
+      ]
     },
     {
       "Name": "Memory Monitor",
@@ -42,8 +46,12 @@
       "Tooltip": "Show memory usage with trend chart",
       "UUID": "com.ulanzi.ulanzistudio.sysmonitor.mem",
       "SupportedInMultiActions": false,
-      "Controllers": ["Keypad"],
-      "Devices": ["D200"]
+      "Controllers": [
+        "Keypad"
+      ],
+      "Devices": [
+        "D200"
+      ]
     },
     {
       "Name": "Disk Usage",
@@ -58,8 +66,12 @@
       "Tooltip": "Show disk usage with trend chart",
       "UUID": "com.ulanzi.ulanzistudio.sysmonitor.disk",
       "SupportedInMultiActions": false,
-      "Controllers": ["Keypad"],
-      "Devices": ["D200"]
+      "Controllers": [
+        "Keypad"
+      ],
+      "Devices": [
+        "D200"
+      ]
     },
     {
       "Name": "Disk IO",
@@ -74,8 +86,12 @@
       "Tooltip": "Show disk read and write rates",
       "UUID": "com.ulanzi.ulanzistudio.sysmonitor.diskio",
       "SupportedInMultiActions": false,
-      "Controllers": ["Keypad"],
-      "Devices": ["D200"]
+      "Controllers": [
+        "Keypad"
+      ],
+      "Devices": [
+        "D200"
+      ]
     },
     {
       "Name": "Network",
@@ -90,8 +106,32 @@
       "Tooltip": "Show network down and up rates",
       "UUID": "com.ulanzi.ulanzistudio.sysmonitor.net",
       "SupportedInMultiActions": false,
-      "Controllers": ["Keypad"],
-      "Devices": ["D200"]
+      "Controllers": [
+        "Keypad"
+      ],
+      "Devices": [
+        "D200"
+      ]
+    },
+    {
+      "Name": "GPU Monitor",
+      "Icon": "assets/icons/text.svg",
+      "PropertyInspectorPath": "property-inspector/gpu/inspector.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/text.svg"
+        }
+      ],
+      "Tooltip": "Show GPU usage with trend chart",
+      "UUID": "com.ulanzi.ulanzistudio.sysmonitor.gpu",
+      "SupportedInMultiActions": false,
+      "Controllers": [
+        "Keypad"
+      ],
+      "Devices": [
+        "D200"
+      ]
     }
   ],
   "OS": [

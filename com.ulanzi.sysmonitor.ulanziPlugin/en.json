@@ -21,6 +21,10 @@
     {
       "Name": "Network",
       "Tooltip": "Show network down and up rates"
+    },
+    {
+      "Name": "GPU Monitor",
+      "Tooltip": "Show GPU usage with trend chart"
     }
   ],
   "Localization": {
@@ -34,6 +38,8 @@
     "Disk IO": "Disk IO",
     "Network": "Network",
     "Mount point": "Mount point",
-    "Interface": "Interface"
+    "Interface": "Interface",
+    "GPU Monitor": "GPU Monitor",
+    "GPU select": "GPU select"
   }
 }
