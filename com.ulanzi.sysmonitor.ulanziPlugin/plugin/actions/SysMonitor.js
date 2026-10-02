@@ -2,6 +2,9 @@ import si from 'systeminformation';
 import { execFile } from 'child_process';
 import { createSVGWindow } from 'svgdom'
 import { SVG, registerWindow } from '@svgdotjs/svg.js';
+import sampler from './WinSampler.js';
+
+const IS_WIN = process.platform === 'win32';
 
 const window = createSVGWindow()
 const document = window.document
@@ -55,8 +58,11 @@ export default function SysMonitor(context, $UD) {
   }
 
   function refreshIntervalMs() {
-    // 重度讀取保底，避免 PowerShell 和 WMI 把 CPU 吃滿
-    const floors = { disk: 2000, diskio: 2000, net: 2000, gpu: 3000 };
+    // Windows 讀快取不花 process，只剩 gpu 還會起 process所以保底
+    // 非 Windows 照舊，si 每次呼叫都會起 process
+    const floors = IS_WIN
+      ? { gpu: 3000 }
+      : { disk: 2000, diskio: 2000, net: 2000, gpu: 3000 };
     const floor = floors[metricKey()] || 0;
     return Math.max(Shared.ms, floor);
   }
@@ -79,13 +85,16 @@ export default function SysMonitor(context, $UD) {
   }
 
   // 回傳陣列：單系列 1 個值，diskio/net 雙系列 2 個值
+  // Windows 讀常駐採樣快取，不起 process；其他系統走 si
   async function readStats() {
     const key = metricKey();
     if (key === 'cpu') {
+      if (IS_WIN) return [sampleCpu()];
       const load = await si.currentLoad();
       return [clamp(Number(load.currentLoad) || 0)];
     }
     if (key === 'mem') {
+      if (IS_WIN) return [sampleMem()];
       const mem = await si.mem();
       if (mem.total) return [clamp(((mem.total - mem.available) / mem.total) * 100)];
       return [0];
@@ -103,6 +112,72 @@ export default function SysMonitor(context, $UD) {
       return [await readGpuUse()];
     }
     return [0];
+  }
+
+  function sampleCpu() {
+    const s = sampler.get();
+    if (!s || s.cpu == null) return 0;
+    return clamp(Number(s.cpu) || 0);
+  }
+
+  function sampleMem() {
+    const s = sampler.get();
+    const total = Number(s && s.memTotal) || 0;
+    const free = Number(s && s.memFree) || 0;
+    if (!total) return 0;
+    return clamp(((total - free) / total) * 100);
+  }
+
+  function normId(s) {
+    return String(s || '').toLowerCase().replace(/[\\/]+$/, '');
+  }
+
+  function sampleDisks() {
+    const s = sampler.get();
+    const list = (s && s.disks) || [];
+    return Array.isArray(list) ? list : [list];
+  }
+
+  function sampleDiskUse() {
+    const list = sampleDisks();
+    if (list.length === 0) return 0;
+    const target = normId(settings.target || '');
+    let pick = null;
+    if (target) {
+      pick = list.find(f => normId(f.DeviceID) === target);
+    }
+    if (!pick) {
+      pick = list.find(f => normId(f.DeviceID) === 'c:')
+          || list.find(f => Number(f.Size) > 0);
+    }
+    if (!pick || !Number(pick.Size)) return 0;
+    return clamp(((Number(pick.Size) - Number(pick.FreeSpace)) / Number(pick.Size)) * 100);
+  }
+
+  function sampleDiskIO() {
+    const s = sampler.get();
+    if (!s) return [0, 0];
+    return [Math.max(0, Number(s.dioR) || 0),
+            Math.max(0, Number(s.dioW) || 0)];
+  }
+
+  function sampleNet() {
+    const s = sampler.get();
+    let list = (s && s.net) || [];
+    if (!Array.isArray(list)) list = list ? [list] : [];
+    const iface = (settings.iface || '').trim().toLowerCase();
+    if (iface) {
+      list = list.filter(n => String(n.Name || '').toLowerCase().includes(iface));
+    } else {
+      // 排除虛擬和隧道介面，避免流量重複計算
+      list = list.filter(n => !/loopback|tunnel|pseudo|isatap|bluetooth|hyper-v|virtual|vethernet|vpn|tap-|miniport|xbox/i.test(String(n.Name || '')));
+    }
+    let rx = 0, tx = 0;
+    for (const n of list) {
+      rx += Number(n.BytesReceivedPerSec) || 0;
+      tx += Number(n.BytesSentPerSec) || 0;
+    }
+    return [Math.max(0, rx), Math.max(0, tx)];
   }
 
   // nvidia-smi 單一 process 最省，優先用；拿不到才用 si.graphics
@@ -157,28 +232,14 @@ export default function SysMonitor(context, $UD) {
         || ctrls[0];
   }
 
-  // systeminformation v5 的 disksIO 在 Windows 沒實作，直接回 null
-  // Windows 改走 PowerShell 效能計數器 _Total，單次查詢即每秒值
+  // Windows 讀常駐採樣快取；si v5 的 disksIO 在 Windows 沒實作
+  // 非 Windows 用 si，_sec 為 null 代表還沒建立基準就等下次
   async function readDiskIO() {
-    if (process.platform === 'win32') {
-      try {
-        const out = await execPs(
-          "Get-CimInstance -ClassName Win32_PerfFormattedData_PerfDisk_PhysicalDisk" +
-          " | Where-Object { $_.Name -eq '_Total' }" +
-          " | Select-Object DiskReadBytesPerSec,DiskWriteBytesPerSec" +
-          " | ConvertTo-Json -Compress"
-        );
-        const j = JSON.parse(out);
-        return [Math.max(0, Number(j.DiskReadBytesPerSec) || 0),
-                Math.max(0, Number(j.DiskWriteBytesPerSec) || 0)];
-      } catch (e) {
-        console.log('==diskio powershell failed:', e && e.message);
-        return [0, 0];
-      }
-    }
+    if (IS_WIN) return sampleDiskIO();
     const io = await si.disksIO().catch(() => null);
-    return [Math.max(0, Number(io && (io.rIO_sec || io.rIO)) || 0),
-            Math.max(0, Number(io && (io.wIO_sec || io.wIO)) || 0)];
+    if (!io || io.rIO_sec == null || io.wIO_sec == null) return [0, 0];
+    return [Math.max(0, Number(io.rIO_sec) || 0),
+            Math.max(0, Number(io.wIO_sec) || 0)];
   }
 
   function execCmd(file, args) {
@@ -191,12 +252,8 @@ export default function SysMonitor(context, $UD) {
         });
     });
   }
-
-  function execPs(cmd) {
-    return execCmd('powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', cmd]);
-  }
   async function readDiskUse() {
+    if (IS_WIN) return sampleDiskUse();
     const list = await si.fsSize().catch(() => []);
     if (!list || list.length === 0) return 0;
     const norm = s => String(s || '').toLowerCase().replace(/[\\/]+$/, '');
@@ -218,6 +275,7 @@ export default function SysMonitor(context, $UD) {
   }
 
   async function readNet() {
+    if (IS_WIN) return sampleNet();
     let list = await si.networkStats().catch(() => []);
     if (!Array.isArray(list)) list = list ? [list] : [];
     const iface = (settings.iface || '').trim().toLowerCase();
@@ -246,6 +304,8 @@ export default function SysMonitor(context, $UD) {
     // 上次讀取還沒回來就跳過，避免 process 堆積
     if (busy) return;
     busy = true;
+    // 常駐採樣死掉超過 10 秒就重起，內有重試節流
+    if (IS_WIN && sampler.age() > 10000) sampler.start();
     try {
       const vals = await readStats();
       const now = Date.now();
@@ -415,6 +475,8 @@ export default function SysMonitor(context, $UD) {
 
   function updateSettings(new_settings, type) {
     settings = Object.assign({}, new_settings);
+    // 種類變了就重登記採樣，歷史清空避免單位混雜
+    ensureSampler();
     // 單顆 PI 的頻率只當初始值，之後以全域共用值為準
     const s = settings.refresh_interval || settings.poll_status_frequency;
     if (s) Shared.ms = toMs(s);
@@ -446,9 +508,27 @@ export default function SysMonitor(context, $UD) {
       clearInterval(poll_timer);
       poll_timer = 0;
     }
+    if (IS_WIN && acquiredKind) {
+      sampler.release(acquiredKind);
+      acquiredKind = null;
+    }
+  }
+
+  // 追蹤已登記的種類，PI 換種類就重登記，沒人要的查詢就不跑
+  var acquiredKind = null;
+
+  function ensureSampler() {
+    if (!IS_WIN) return;
+    const k = metricKey();
+    if (k === acquiredKind) return;
+    if (acquiredKind) sampler.release(acquiredKind);
+    sampler.acquire(k);
+    acquiredKind = k;
+    history.length = 0;
   }
 
   // 掛上去先畫預設圖，PI 參數進來後會重啟 poll
+  ensureSampler();
   drawIcon((metricKey() === 'diskio' || metricKey() === 'net') ? [0, 0] : [0]);
   startPoll();
   collectAndDraw();
