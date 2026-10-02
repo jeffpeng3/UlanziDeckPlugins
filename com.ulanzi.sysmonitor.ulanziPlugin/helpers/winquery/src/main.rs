@@ -7,9 +7,8 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::time::{Duration, Instant};
 
-use nvml_wrapper::Nvml;
-
 use windows::core::{HSTRING, PCWSTR, PWSTR};
+use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory};
 use windows::Win32::NetworkManagement::IpHelper::{
     FreeMibTable, GetIfTable2, MIB_IF_TABLE2,
 };
@@ -18,8 +17,8 @@ use windows::Win32::Storage::FileSystem::{
 };
 use windows::Win32::System::Performance::{
     PdhAddCounterW, PdhCloseQuery, PdhCollectQueryData, PdhEnumObjectItemsW,
-    PdhGetFormattedCounterValue, PdhOpenQueryW, PDH_FMT_COUNTERVALUE, PDH_FMT_DOUBLE,
-    PDH_HCOUNTER, PDH_HQUERY, PERF_DETAIL_WIZARD,
+    PdhGetFormattedCounterValue, PdhOpenQueryW, PdhRemoveCounter,
+    PDH_FMT_COUNTERVALUE, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY, PERF_DETAIL_WIZARD,
 };
 use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
@@ -61,13 +60,13 @@ struct Pdh {
     disk_insts: Vec<(String, PDH_HCOUNTER)>,
 }
 
-// 列出 PDH 物件實例，磁碟名稱形如 0 C:
+// 列出 PDH 物件實例，磁碟名稱形如 0 C:，GPU 形如 pid_.._phys_0_eng_0_engtype_3D
 fn enum_pdh_instances(object: &str) -> Vec<String> {
     unsafe {
         let obj = HSTRING::from(object);
         let mut counter_len = 0u32;
         let mut inst_len = 0u32;
-        PdhEnumObjectItemsW(
+        let _rc1 = PdhEnumObjectItemsW(
             PCWSTR::null(),
             PCWSTR::null(),
             &obj,
@@ -85,7 +84,7 @@ fn enum_pdh_instances(object: &str) -> Vec<String> {
         let mut inst_len2 = inst_buf.len() as u32;
         let mut counter_buf = vec![0u16; counter_len as usize + 8];
         let mut counter_len2 = counter_buf.len() as u32;
-        if PdhEnumObjectItemsW(
+        let rc2 = PdhEnumObjectItemsW(
             PCWSTR::null(),
             PCWSTR::null(),
             &obj,
@@ -95,7 +94,8 @@ fn enum_pdh_instances(object: &str) -> Vec<String> {
             &mut inst_len2,
             PERF_DETAIL_WIZARD,
             0,
-        ) != 0
+        );
+        if rc2 != 0
         {
             return Vec::new();
         }
@@ -203,6 +203,24 @@ impl Drop for Pdh {
     }
 }
 
+fn counter_value(c: PDH_HCOUNTER) -> f64 {
+    unsafe {
+        let mut v = std::mem::zeroed::<PDH_FMT_COUNTERVALUE>();
+        let rc = PdhGetFormattedCounterValue(c, PDH_FMT_DOUBLE, None, &mut v);
+        if std::env::var("WINQUERY_DEBUG").is_ok() {
+            eprintln!(
+                "DBG getval rc={:#x} v={}",
+                rc,
+                v.Anonymous.doubleValue
+            );
+        }
+        if rc == 0 {
+            return v.Anonymous.doubleValue;
+        }
+    }
+    0.0
+}
+
 struct Drive {
     id: String,
     size: u64,
@@ -264,40 +282,193 @@ fn read_mem() -> (u64, u64) {
 
 struct Gpu {
     name: String,
-    util: u32,
+    util: f64,
 }
 
-struct NvmlState {
-    nvml: Nvml,
+// PDH GPU Engine：不分廠牌都吃得到
+// 實例形如 pid_10992_luid_0x00000000_0x0000D3D0_phys_0_eng_0_engtype_3D
+// pid 會變，只拿 phys 和 luid 配對，名稱用 DXGI 轉出真正卡名
+struct GpuMon {
+    query: PDH_HQUERY,
+    // norm key 去掉 pid，value 是全名
+    counters: HashMap<String, (u32, PDH_HCOUNTER)>,
+    names: HashMap<u32, String>,
 }
 
-impl NvmlState {
-    fn init() -> Option<NvmlState> {
-        match Nvml::init() {
-            Ok(nvml) => Some(NvmlState { nvml }),
-            Err(_) => None,
+fn parse_gpu_inst(name: &str) -> Option<(u32, u32, i32)> {
+    let p: Vec<&str> = name.split('_').collect();
+    let mut phys = None;
+    let mut low = None;
+    let mut high = None;
+    let mut i = 0;
+    while i < p.len() {
+        if p[i] == "phys" && i + 1 < p.len() {
+            phys = p[i + 1].parse::<u32>().ok();
+            i += 2;
+        } else if p[i] == "luid" && i + 2 < p.len() {
+            high = u32::from_str_radix(p[i + 1].trim_start_matches("0x"), 16)
+                .ok()
+                .map(|v| v as i32);
+            low = u32::from_str_radix(p[i + 2].trim_start_matches("0x"), 16).ok();
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    Some((phys?, low?, high?))
+}
+
+fn dxgi_adapters() -> Vec<(u32, i32, String)> {
+    let mut out = Vec::new();
+    unsafe {
+        let factory: IDXGIFactory = match CreateDXGIFactory1() {
+            Ok(f) => f,
+            Err(_) => return out,
+        };
+        let mut i = 0u32;
+        while let Ok(a) = factory.EnumAdapters(i) {
+            if let Ok(d) = a.GetDesc() {
+                out.push((
+                    d.AdapterLuid.LowPart,
+                    d.AdapterLuid.HighPart,
+                    u16_to_string(&d.Description),
+                ));
+            }
+            i += 1;
+        }
+        out
+    }
+}
+
+impl GpuMon {
+    fn open() -> GpuMon {
+        let mut mon = GpuMon {
+            query: PDH_HQUERY::default(),
+            counters: HashMap::new(),
+            names: HashMap::new(),
+        };
+        unsafe {
+            let mut query = PDH_HQUERY::default();
+            if PdhOpenQueryW(PCWSTR::null(), 0, &mut query) == 0 && !query.is_invalid() {
+                mon.query = query;
+                mon.rebuild();
+            }
+        }
+        mon
+    }
+
+    fn add_counter(&self, path: &str) -> Option<PDH_HCOUNTER> {
+        unsafe {
+            let h = HSTRING::from(path);
+            let mut c = PDH_HCOUNTER::default();
+            if PdhAddCounterW(self.query, &h, 0, &mut c) == 0 {
+                Some(c)
+            } else {
+                None
+            }
         }
     }
 
-    fn read_gpus(&self) -> Vec<Gpu> {
-        let mut out = Vec::new();
-        let count = match self.nvml.device_count() {
-            Ok(c) => c,
-            Err(_) => return out,
-        };
-        for i in 0..count {
-            let dev = match self.nvml.device_by_index(i) {
-                Ok(d) => d,
-                Err(_) => continue,
-            };
-            let name = dev.name().unwrap_or_else(|_| format!("GPU{}", i));
-            let util = dev
-                .utilization_rates()
-                .map(|u| u.gpu)
-                .unwrap_or(0);
-            out.push(Gpu { name, util });
+    // 全量綁定：每個 (行程, 引擎) 實例各一個計數器，按 phys 加總
+    // 不去 pid 重複，因為不同行程的用量是獨立的，少綁就少算
+    // 列舉取空代表失敗，直接保留現有計數器
+    fn rebuild(&mut self) {
+        if self.query.is_invalid() {
+            return;
         }
-        out
+        let insts = enum_pdh_instances("GPU Engine");
+        if insts.is_empty() {
+            return;
+        }
+        let live: std::collections::HashSet<String> = insts.into_iter().collect();
+        // 先砍已死實例的計數器
+        let dead: Vec<String> = self
+            .counters
+            .keys()
+            .filter(|k| !live.contains(*k))
+            .cloned()
+            .collect();
+        for k in dead {
+            if let Some((_, c)) = self.counters.remove(&k) {
+                unsafe {
+                    PdhRemoveCounter(c);
+                }
+            }
+        }
+        // 再補上活著但還沒綁的
+        let mut ordered: Vec<String> = live.into_iter().collect();
+        ordered.sort();
+        for full in ordered {
+            if self.counters.contains_key(&full) {
+                continue;
+            }
+            let path = format!(r"\GPU Engine({})\Utilization Percentage", full);
+            if let Some(c) = self.add_counter(&path) {
+                let phys = parse_gpu_inst(&full).map(|(p, _, _)| p).unwrap_or(999);
+                self.counters.insert(full, (phys, c));
+            }
+        }
+        self.resolve_names();
+    }
+
+    fn resolve_names(&mut self) {
+        // phys 配 DXGI 的 luid 拿真正卡名
+        let adapters = dxgi_adapters();
+        let mut phys_luid: HashMap<u32, (u32, i32)> = HashMap::new();
+        for (full, _) in self.counters.iter() {
+            if let Some((phys, low, high)) = parse_gpu_inst(full) {
+                phys_luid.entry(phys).or_insert((low, high));
+            }
+        }
+        self.names.clear();
+        for (phys, (low, high)) in &phys_luid {
+            let mut name = format!("GPU {}", phys);
+            for (alow, ahigh, desc) in &adapters {
+                if alow == low && ahigh == high && !desc.is_empty() {
+                    name = desc.clone();
+                    break;
+                }
+            }
+            self.names.insert(*phys, name);
+        }
+    }
+
+    fn collect(&self) -> bool {
+        if self.query.is_invalid() {
+            return false;
+        }
+        unsafe { PdhCollectQueryData(self.query) == 0 }
+    }
+
+    fn read(&self) -> Vec<Gpu> {
+        let mut sums: HashMap<u32, f64> = HashMap::new();
+        let mut raw_total = 0.0;
+        for (phys, c) in self.counters.values() {
+            let v = counter_value(*c);
+            raw_total += v;
+            *sums.entry(*phys).or_insert(0.0) += v;
+        }
+        if std::env::var("WINQUERY_DEBUG").is_ok() {
+            eprintln!(
+                "DBG gpu counters={} raw_total={:.2}",
+                self.counters.len(),
+                raw_total
+            );
+        }
+        let mut phys_list: Vec<u32> = sums.keys().copied().collect();
+        phys_list.sort_unstable();
+        phys_list
+            .into_iter()
+            .map(|p| {
+                let util = (sums[&p].min(100.0) * 10.0).round() / 10.0;
+                let name = self
+                    .names
+                    .get(&p)
+                    .cloned()
+                    .unwrap_or_else(|| format!("GPU {}", p));
+                Gpu { name, util }
+            })
+            .collect()
     }
 }
 
@@ -382,7 +553,7 @@ fn emit(smp: &Sample) -> bool {
             tx
         ));
     }
-    s.push_str("]}");
+    s.push(']');
     s.push_str(",\"diskActive\":");
     s.push_str(&format!("{:.1}", smp.disk_active));
     s.push_str(",\"diskActives\":[");
@@ -396,14 +567,14 @@ fn emit(smp: &Sample) -> bool {
             v
         ));
     }
-    s.push_str("]}");
+    s.push(']');
     s.push_str(",\"gpus\":[");
     for (i, g) in smp.gpus.iter().enumerate() {
         if i > 0 {
             s.push(',');
         }
         s.push_str(&format!(
-            "{{\"name\":\"{}\",\"util\":{}}}",
+            "{{\"name\":\"{}\",\"util\":{:.1}}}",
             json_escape(&g.name),
             g.util
         ));
@@ -420,14 +591,21 @@ fn main() {
     };
     // 熱身一次，速率計數器要有兩次採樣才準
     pdh.collect();
-    // NVML 失敗就當沒顯卡，不影響其他數據
-    let nvml = NvmlState::init();
+    let mut gpu_mon = GpuMon::open();
+    gpu_mon.collect();
     let mut prev_nic: HashMap<String, (u64, u64)> = HashMap::new();
     let mut prev_t = Instant::now();
+    let mut tick = 0u32;
     loop {
         std::thread::sleep(Duration::from_secs(1));
+        tick += 1;
         if !pdh.collect() {
             continue;
+        }
+        gpu_mon.collect();
+        // pid 會變，每 10 秒重建 GPU 計數器集合
+        if tick.is_multiple_of(10) {
+            gpu_mon.rebuild();
         }
         let dt = prev_t.elapsed().as_secs_f64();
         prev_t = Instant::now();
@@ -457,10 +635,7 @@ fn main() {
         for n in &nics_now {
             prev_nic.insert(n.name.clone(), (n.rx, n.tx));
         }
-        let gpus = match &nvml {
-            Some(n) => n.read_gpus(),
-            None => Vec::new(),
-        };
+        let gpus = gpu_mon.read();
         let sample = Sample {
             cpu,
             mem_total,
