@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use nvml_wrapper::Nvml;
 
-use windows::core::{HSTRING, PCWSTR};
+use windows::core::{HSTRING, PCWSTR, PWSTR};
 use windows::Win32::NetworkManagement::IpHelper::{
     FreeMibTable, GetIfTable2, MIB_IF_TABLE2,
 };
@@ -17,8 +17,9 @@ use windows::Win32::Storage::FileSystem::{
     GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDriveStringsW,
 };
 use windows::Win32::System::Performance::{
-    PdhAddCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterValue,
-    PdhOpenQueryW, PDH_FMT_COUNTERVALUE, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY,
+    PdhAddCounterW, PdhCloseQuery, PdhCollectQueryData, PdhEnumObjectItemsW,
+    PdhGetFormattedCounterValue, PdhOpenQueryW, PDH_FMT_COUNTERVALUE, PDH_FMT_DOUBLE,
+    PDH_HCOUNTER, PDH_HQUERY, PERF_DETAIL_WIZARD,
 };
 use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
@@ -56,9 +57,69 @@ struct Pdh {
     cpu: PDH_HCOUNTER,
     dio_r: PDH_HCOUNTER,
     dio_w: PDH_HCOUNTER,
+    disk_active: PDH_HCOUNTER,
+    disk_insts: Vec<(String, PDH_HCOUNTER)>,
+}
+
+// 列出 PDH 物件實例，磁碟名稱形如 0 C:
+fn enum_pdh_instances(object: &str) -> Vec<String> {
+    unsafe {
+        let obj = HSTRING::from(object);
+        let mut counter_len = 0u32;
+        let mut inst_len = 0u32;
+        PdhEnumObjectItemsW(
+            PCWSTR::null(),
+            PCWSTR::null(),
+            &obj,
+            None,
+            &mut counter_len,
+            None,
+            &mut inst_len,
+            PERF_DETAIL_WIZARD,
+            0,
+        );
+        if inst_len == 0 {
+            return Vec::new();
+        }
+        let mut inst_buf = vec![0u16; inst_len as usize + 8];
+        let mut inst_len2 = inst_buf.len() as u32;
+        let mut counter_buf = vec![0u16; counter_len as usize + 8];
+        let mut counter_len2 = counter_buf.len() as u32;
+        if PdhEnumObjectItemsW(
+            PCWSTR::null(),
+            PCWSTR::null(),
+            &obj,
+            Some(PWSTR(counter_buf.as_mut_ptr())),
+            &mut counter_len2,
+            Some(PWSTR(inst_buf.as_mut_ptr())),
+            &mut inst_len2,
+            PERF_DETAIL_WIZARD,
+            0,
+        ) != 0
+        {
+            return Vec::new();
+        }
+        inst_buf[..inst_len2 as usize]
+            .split(|&c| c == 0)
+            .filter(|p| !p.is_empty())
+            .map(u16_to_string)
+            .collect()
+    }
 }
 
 impl Pdh {
+    fn add_counter(&self, path: &str) -> Option<PDH_HCOUNTER> {
+        unsafe {
+            let h = HSTRING::from(path);
+            let mut c = PDH_HCOUNTER::default();
+            if PdhAddCounterW(self.query, &h, 0, &mut c) == 0 {
+                Some(c)
+            } else {
+                None
+            }
+        }
+    }
+
     fn open() -> Option<Pdh> {
         unsafe {
             let mut query = PDH_HQUERY::default();
@@ -68,6 +129,7 @@ impl Pdh {
             let mut cpu = PDH_HCOUNTER::default();
             let mut dio_r = PDH_HCOUNTER::default();
             let mut dio_w = PDH_HCOUNTER::default();
+            let mut disk_active = PDH_HCOUNTER::default();
             let ok = PdhAddCounterW(
                 query,
                 windows::core::w!(r"\Processor(_Total)\% Processor Time"),
@@ -85,12 +147,36 @@ impl Pdh {
                     windows::core::w!(r"\PhysicalDisk(_Total)\Disk Write Bytes/sec"),
                     0,
                     &mut dio_w,
+                ) == 0
+                && PdhAddCounterW(
+                    query,
+                    windows::core::w!(r"\PhysicalDisk(_Total)\% Disk Time"),
+                    0,
+                    &mut disk_active,
                 ) == 0;
             if !ok {
                 PdhCloseQuery(query);
                 return None;
             }
-            Some(Pdh { query, cpu, dio_r, dio_w })
+            let mut pdh = Pdh {
+                query,
+                cpu,
+                dio_r,
+                dio_w,
+                disk_active,
+                disk_insts: Vec::new(),
+            };
+            // 每顆實體碟各加一個 active time，名稱形如 0 C:
+            for inst in enum_pdh_instances("PhysicalDisk") {
+                if inst == "_Total" {
+                    continue;
+                }
+                let path = format!(r"\PhysicalDisk({})\% Disk Time", inst);
+                if let Some(c) = pdh.add_counter(&path) {
+                    pdh.disk_insts.push((inst, c));
+                }
+            }
+            Some(pdh)
         }
     }
 
@@ -258,6 +344,8 @@ struct Sample {
     drives: Vec<Drive>,
     dio_r: u64,
     dio_w: u64,
+    disk_active: f64,
+    disk_actives: Vec<(String, f64)>,
     nics: Vec<(String, u64, u64)>,
     gpus: Vec<Gpu>,
 }
@@ -292,6 +380,20 @@ fn emit(smp: &Sample) -> bool {
             json_escape(name),
             rx,
             tx
+        ));
+    }
+    s.push_str("]}");
+    s.push_str(",\"diskActive\":");
+    s.push_str(&format!("{:.1}", smp.disk_active));
+    s.push_str(",\"diskActives\":[");
+    for (i, (name, v)) in smp.disk_actives.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!(
+            "{{\"name\":\"{}\",\"active\":{:.1}}}",
+            json_escape(name),
+            v
         ));
     }
     s.push_str("]}");
@@ -337,6 +439,12 @@ fn main() {
         let drives = read_drives();
         let dio_r = pdh.value(pdh.dio_r).round() as u64;
         let dio_w = pdh.value(pdh.dio_w).round() as u64;
+        let disk_active = (pdh.value(pdh.disk_active) * 10.0).round() / 10.0;
+        let mut disk_actives = Vec::with_capacity(pdh.disk_insts.len());
+        for (name, c) in &pdh.disk_insts {
+            let v = (pdh.value(*c) * 10.0).round() / 10.0;
+            disk_actives.push((name.clone(), v));
+        }
         let nics_now = read_nics();
         let mut nics = Vec::with_capacity(nics_now.len());
         for n in &nics_now {
@@ -360,6 +468,8 @@ fn main() {
             drives,
             dio_r,
             dio_w,
+            disk_active,
+            disk_actives,
             nics,
             gpus,
         };

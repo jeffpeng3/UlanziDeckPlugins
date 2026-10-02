@@ -11,8 +11,8 @@
       "Tooltip": "顯示記憶體使用率與走勢圖"
     },
     {
-      "Name": "硬碟佔用",
-      "Tooltip": "顯示硬碟使用率與走勢圖"
+      "Name": "硬碟活動時間",
+      "Tooltip": "顯示硬碟活動時間與走勢圖"
     },
     {
       "Name": "硬碟讀寫",
@@ -34,12 +34,12 @@
     "Refresh interval": "更新頻率",
     "Decimals": "小數位數",
     "sec": "秒",
-    "Disk Usage": "硬碟佔用",
     "Disk IO": "硬碟讀寫",
     "Network": "網路",
     "Mount point": "掛載點",
     "Interface": "網路卡",
     "GPU Monitor": "顯示卡監控",
-    "GPU select": "顯卡選擇"
+    "GPU select": "顯卡選擇",
+    "Disk Active": "硬碟活動時間"
   }
 }

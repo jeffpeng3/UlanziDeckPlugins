@@ -132,26 +132,30 @@ export default function SysMonitor(context, $UD) {
     return String(s || '').toLowerCase().replace(/[\\/]+$/, '');
   }
 
-  function sampleDisks() {
-    const s = sampler.get();
-    const list = (s && s.disks) || [];
-    return Array.isArray(list) ? list : [list];
-  }
-
+  // Windows：active time，找名稱含目標磁碟機代號的實例如 1 C:
+  // 找不到退回 _Total；active time 可破百只保底不封頂
   function sampleDiskUse() {
-    const list = sampleDisks();
-    if (list.length === 0) return 0;
-    const target = normId(settings.target || '');
-    let pick = null;
-    if (target) {
-      pick = list.find(f => normId(f.DeviceID) === target);
+    const s = sampler.get();
+    let list = (s && s.diskActives) || [];
+    if (!Array.isArray(list)) list = [];
+    const target = normId(settings.target || '').replace(/:$/, '');
+    let v = null;
+    if (list.length > 0) {
+      let hit = null;
+      if (target) {
+        hit = list.find(d => String(d.name || '').toLowerCase().includes(target));
+      }
+      if (!hit) {
+        hit = list.find(d => String(d.name || '').toLowerCase().includes('c:'))
+            || list[0];
+      }
+      if (hit) v = Number(hit.active);
     }
-    if (!pick) {
-      pick = list.find(f => normId(f.DeviceID) === 'c:')
-          || list.find(f => Number(f.Size) > 0);
+    if (v == null || !Number.isFinite(v)) {
+      const total = Number(s && s.diskActive);
+      v = Number.isFinite(total) ? total : 0;
     }
-    if (!pick || !Number(pick.Size)) return 0;
-    return clamp(((Number(pick.Size) - Number(pick.FreeSpace)) / Number(pick.Size)) * 100);
+    return Math.max(0, v);
   }
 
   function sampleDiskIO() {

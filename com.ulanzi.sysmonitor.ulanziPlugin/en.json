@@ -11,8 +11,8 @@
       "Tooltip": "Show memory usage with trend chart"
     },
     {
-      "Name": "Disk Usage",
-      "Tooltip": "Show disk usage with trend chart"
+      "Name": "Disk Active",
+      "Tooltip": "Show disk active time with trend chart"
     },
     {
       "Name": "Disk IO",
@@ -34,12 +34,12 @@
     "Refresh interval": "Refresh interval",
     "Decimals": "Decimals",
     "sec": "sec",
-    "Disk Usage": "Disk Usage",
     "Disk IO": "Disk IO",
     "Network": "Network",
     "Mount point": "Mount point",
     "Interface": "Interface",
     "GPU Monitor": "GPU Monitor",
-    "GPU select": "GPU select"
+    "GPU select": "GPU select",
+    "Disk Active": "Disk Active"
   }
 }
