@@ -9,6 +9,18 @@
     {
       "Name": "Memory Monitor",
       "Tooltip": "Show memory usage with trend chart"
+    },
+    {
+      "Name": "Disk Usage",
+      "Tooltip": "Show disk usage with trend chart"
+    },
+    {
+      "Name": "Disk IO",
+      "Tooltip": "Show disk read and write rates"
+    },
+    {
+      "Name": "Network",
+      "Tooltip": "Show network down and up rates"
     }
   ],
   "Localization": {
@@ -17,6 +29,11 @@
     "Title": "Title",
     "Refresh interval": "Refresh interval",
     "Decimals": "Decimals",
-    "sec": "sec"
+    "sec": "sec",
+    "Disk Usage": "Disk Usage",
+    "Disk IO": "Disk IO",
+    "Network": "Network",
+    "Mount point": "Mount point",
+    "Interface": "Interface"
   }
 }

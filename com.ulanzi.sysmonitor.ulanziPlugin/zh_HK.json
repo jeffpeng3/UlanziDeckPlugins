@@ -9,6 +9,18 @@
     {
       "Name": "記憶體監控",
       "Tooltip": "顯示記憶體使用率與走勢圖"
+    },
+    {
+      "Name": "硬碟佔用",
+      "Tooltip": "顯示硬碟使用率與走勢圖"
+    },
+    {
+      "Name": "硬碟讀寫",
+      "Tooltip": "顯示硬碟讀寫速率"
+    },
+    {
+      "Name": "網路",
+      "Tooltip": "顯示網路上下傳速率"
     }
   ],
   "Localization": {
@@ -17,6 +29,11 @@
     "Title": "標題",
     "Refresh interval": "更新頻率",
     "Decimals": "小數位數",
-    "sec": "秒"
+    "sec": "秒",
+    "Disk Usage": "硬碟佔用",
+    "Disk IO": "硬碟讀寫",
+    "Network": "網路",
+    "Mount point": "掛載點",
+    "Interface": "網路卡"
   }
 }

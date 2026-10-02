@@ -1,8 +1,8 @@
 {
-  "Version": "1.0.0",
+  "Version": "1.1.0",
   "Author": "Ulanzi",
   "Name": "System Monitor",
-  "Description": "CPU / Memory monitor for D200",
+  "Description": "CPU / Memory / Disk / Network monitor for D200",
   "Icon": "assets/icons/pluginIcon.png",
   "Category": "System Monitor",
   "CategoryIcon": "assets/icons/category.png",
@@ -41,6 +41,54 @@
       ],
       "Tooltip": "Show memory usage with trend chart",
       "UUID": "com.ulanzi.ulanzistudio.sysmonitor.mem",
+      "SupportedInMultiActions": false,
+      "Controllers": ["Keypad"],
+      "Devices": ["D200"]
+    },
+    {
+      "Name": "Disk Usage",
+      "Icon": "assets/icons/text.svg",
+      "PropertyInspectorPath": "property-inspector/disk/inspector.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/text.svg"
+        }
+      ],
+      "Tooltip": "Show disk usage with trend chart",
+      "UUID": "com.ulanzi.ulanzistudio.sysmonitor.disk",
+      "SupportedInMultiActions": false,
+      "Controllers": ["Keypad"],
+      "Devices": ["D200"]
+    },
+    {
+      "Name": "Disk IO",
+      "Icon": "assets/icons/text.svg",
+      "PropertyInspectorPath": "property-inspector/diskio/inspector.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/text.svg"
+        }
+      ],
+      "Tooltip": "Show disk read and write rates",
+      "UUID": "com.ulanzi.ulanzistudio.sysmonitor.diskio",
+      "SupportedInMultiActions": false,
+      "Controllers": ["Keypad"],
+      "Devices": ["D200"]
+    },
+    {
+      "Name": "Network",
+      "Icon": "assets/icons/text.svg",
+      "PropertyInspectorPath": "property-inspector/net/inspector.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/text.svg"
+        }
+      ],
+      "Tooltip": "Show network down and up rates",
+      "UUID": "com.ulanzi.ulanzistudio.sysmonitor.net",
       "SupportedInMultiActions": false,
       "Controllers": ["Keypad"],
       "Devices": ["D200"]

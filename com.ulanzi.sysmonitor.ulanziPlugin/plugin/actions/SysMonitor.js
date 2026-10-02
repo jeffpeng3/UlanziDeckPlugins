@@ -10,8 +10,12 @@ registerWindow(window, document)
 
 const BG = '#0b0f0e';
 const GREEN = '#4ade80';
-const GREEN_AREA = '#22c55e';
+const YELLOW = '#facc15';
 const TITLE_COLOR = '#e8e8e8';
+
+// 雙系列顏色：讀/下傳綠，上傳/寫黃
+const SERIES_COLORS = ['#4ade80', '#facc15'];
+const SERIES_ARROWS = ['\u2193', '\u2191'];
 
 // 全插件共用的更新頻率，任一 PI 或全域設定寫入後全部 instance 同步
 const Shared = { ms: 1000 };
@@ -32,13 +36,20 @@ export default function SysMonitor(context, $UD) {
     history = [],
     $UD = $UD;
 
-  const IS_CPU = context.indexOf('.cpu') >= 0;
-  const DEFAULT_TITLE = IS_CPU ? 'CPU' : 'Memory';
+  const TITLES = { cpu: 'CPU', mem: 'Memory', disk: 'Disk', diskio: 'Disk IO', net: 'Net' };
 
   function metricKey() {
-    if (settings.metric === 'mem' || settings.metric === 'memory') return 'mem';
-    if (settings.metric === 'cpu') return 'cpu';
-    return IS_CPU ? 'cpu' : 'mem';
+    const m = settings.metric;
+    if (m === 'cpu' || m === 'mem' || m === 'disk' || m === 'diskio' || m === 'net') return m;
+    if (context.indexOf('.diskio') >= 0) return 'diskio';
+    if (context.indexOf('.disk') >= 0) return 'disk';
+    if (context.indexOf('.net') >= 0) return 'net';
+    if (context.indexOf('.mem') >= 0) return 'mem';
+    return 'cpu';
+  }
+
+  function defaultTitle() {
+    return TITLES[metricKey()] || 'CPU';
   }
 
   function refreshIntervalMs() {
@@ -51,7 +62,6 @@ export default function SysMonitor(context, $UD) {
 
   function decimals() {
     const d = Number(settings.decimals);
-    if (settings.metric === undefined && IS_CPU) return 1;
     return Number.isFinite(d) ? d : 1;
   }
 
@@ -63,17 +73,68 @@ export default function SysMonitor(context, $UD) {
     poll_timer = setInterval(collectAndDraw, refreshIntervalMs());
   }
 
-  async function readValue() {
+  // 回傳陣列：單系列 1 個值，diskio/net 雙系列 2 個值
+  async function readStats() {
     const key = metricKey();
     if (key === 'cpu') {
       const load = await si.currentLoad();
-      return clamp(Number(load.currentLoad) || 0);
+      return [clamp(Number(load.currentLoad) || 0)];
     }
-    const mem = await si.mem();
-    if (mem.total) {
-      return clamp(((mem.total - mem.available) / mem.total) * 100);
+    if (key === 'mem') {
+      const mem = await si.mem();
+      if (mem.total) return [clamp(((mem.total - mem.available) / mem.total) * 100)];
+      return [0];
     }
-    return 0;
+    if (key === 'disk') {
+      return [await readDiskUse()];
+    }
+    if (key === 'diskio') {
+      const io = await si.disksIO().catch(() => null);
+      return [Math.max(0, Number(io && (io.rIO_sec || io.rIO)) || 0),
+              Math.max(0, Number(io && (io.wIO_sec || io.wIO)) || 0)];
+    }
+    if (key === 'net') {
+      return await readNet();
+    }
+    return [0];
+  }
+
+  async function readDiskUse() {
+    const list = await si.fsSize().catch(() => []);
+    if (!list || list.length === 0) return 0;
+    const norm = s => String(s || '').toLowerCase().replace(/[\\/]+$/, '');
+    const target = norm(settings.target || '');
+    let pick = null;
+    if (target) {
+      pick = list.find(f => norm(f.mount) === target)
+          || list.find(f => norm(f.fs) === target);
+    }
+    if (!pick) {
+      pick = list.find(f => norm(f.mount) === 'c:')
+          || list.find(f => norm(f.fs) === 'c:')
+          || list.find(f => Number(f.size) > 0 && Number(f.use) > 0
+              && !String(f.mount || '').startsWith('/usr/')
+              && !String(f.mount || '').startsWith('/mnt/wsl'))
+          || list.find(f => Number(f.size) > 0);
+    }
+    return clamp(Number(pick && pick.use) || 0);
+  }
+
+  async function readNet() {
+    let list = await si.networkStats().catch(() => []);
+    if (!Array.isArray(list)) list = list ? [list] : [];
+    const iface = (settings.iface || '').trim().toLowerCase();
+    if (iface) {
+      list = list.filter(n => String(n.iface || '').toLowerCase() === iface);
+    } else {
+      list = list.filter(n => !n.internal && String(n.iface || '').toLowerCase() !== 'lo');
+    }
+    let rx = 0, tx = 0;
+    for (const n of list) {
+      rx += Number(n.rx_sec) || 0;
+      tx += Number(n.tx_sec) || 0;
+    }
+    return [Math.max(0, rx), Math.max(0, tx)];
   }
 
   function clamp(v) {
@@ -84,29 +145,49 @@ export default function SysMonitor(context, $UD) {
 
   async function collectAndDraw() {
     try {
-      const v = await readValue();
+      const vals = await readStats();
       const now = Date.now();
-      history.push({ t: now, v: v });
+      history.push({ t: now, vals: vals });
       // 只留過去 60 秒，外加總數上限避免記憶體膨脹
       while (history.length > 0 && now - history[0].t > WINDOW_MS) history.shift();
       while (history.length > MAX_POINTS) history.shift();
-      drawIcon(v);
+      drawIcon(vals);
     } catch (e) {
       console.log('==sysmonitor read error:', e);
     }
   }
 
-  function formatValue(v) {
-    const d = decimals();
-    const s = v.toFixed(d);
-    // Memory 用 GB 顯示會擠不下，統一用 %，跟圖片的大數字語意一致
-    return s + '%';
+  function formatPct(v) {
+    return v.toFixed(decimals()) + '%';
   }
 
-  function drawIcon(value) {
+  function formatBytes(v) {
+    const d = decimals();
+    if (v >= 1073741824) return (v / 1073741824).toFixed(d) + 'G/s';
+    if (v >= 1048576) return (v / 1048576).toFixed(d) + 'M/s';
+    if (v >= 1024) return (v / 1024).toFixed(d) + 'K/s';
+    return Math.round(v) + 'B/s';
+  }
+
+  // 每列 {text, color}，單系列 1 列，雙系列 2 列
+  function labelsFor(vals) {
+    const key = metricKey();
+    if (vals.length > 1) {
+      return vals.map((v, i) => ({
+        text: SERIES_ARROWS[i] + formatBytes(v),
+        color: SERIES_COLORS[i % SERIES_COLORS.length]
+      }));
+    }
+    if (key === 'diskio' || key === 'net') {
+      return [{ text: formatBytes(vals[0]), color: SERIES_COLORS[0] }];
+    }
+    return [{ text: formatPct(vals[0]), color: GREEN }];
+  }
+
+  function drawIcon(vals) {
     const SIZE = 200;
-    const title = (settings.title || DEFAULT_TITLE || 'Request').slice(0, 12);
-    const numColor = GREEN;
+    const title = (settings.title || defaultTitle() || 'Request').slice(0, 12);
+    const labels = labelsFor(vals);
 
     const draw = SVG(document.documentElement).size(SIZE, SIZE);
     draw.rect(SIZE, SIZE).fill(BG);
@@ -120,16 +201,34 @@ export default function SysMonitor(context, $UD) {
       anchor: 'middle'
     }).center(SIZE / 2, 26);
 
-    // 中間數字，比之前縮小避免 D200 爆框
-    const label = formatValue(value);
-    const numSize = label.length > 7 ? 34 : label.length > 5 ? 40 : 46;
-    draw.text(label).font({
-      family: 'sans-serif',
-      size: numSize,
-      weight: 'bold',
-      fill: numColor,
-      anchor: 'middle'
-    }).center(SIZE / 2, 78);
+    if (labels.length > 1) {
+      // 雙系列：兩列置中，讀/下傳綠，寫/上傳黃
+      const rows = [
+        { label: labels[0], y: 58 },
+        { label: labels[1], y: 92 }
+      ];
+      for (const r of rows) {
+        const size = r.label.text.length > 9 ? 26 : 30;
+        draw.text(r.label.text).font({
+          family: 'sans-serif',
+          size: size,
+          weight: 'bold',
+          fill: r.label.color,
+          anchor: 'middle'
+        }).center(SIZE / 2, r.y);
+      }
+    } else {
+      // 單系列大數字，避免 D200 爆框
+      const label = labels[0].text;
+      const numSize = label.length > 7 ? 34 : label.length > 5 ? 40 : 46;
+      draw.text(label).font({
+        family: 'sans-serif',
+        size: numSize,
+        weight: 'bold',
+        fill: labels[0].color,
+        anchor: 'middle'
+      }).center(SIZE / 2, 78);
+    }
 
     // 底部面積走勢圖
     drawTrend(draw, SIZE);
@@ -144,50 +243,59 @@ export default function SysMonitor(context, $UD) {
     const now = Date.now();
     const cutoff = now - WINDOW_MS;
     const pts = history.filter(p => p.t >= cutoff);
-    // 圖區往上撐高，底部留 15% 空白
+    // 圖區往上撐高，底部留 8% 空白
     const top = 112;
-    const bottom = 170;
+    const bottom = 184;
 
-    // 依窗口最大最小縮放，波動再小也看得見
+    // 全部系列共同縮放，波動再小也看得見
     let wmin = 0;
     let wmax = 0;
-    if (pts.length > 0) {
-      wmin = pts[0].v;
-      wmax = pts[0].v;
-      for (const p of pts) {
-        if (p.v < wmin) wmin = p.v;
-        if (p.v > wmax) wmax = p.v;
+    let count = 0;
+    for (const p of pts) {
+      for (const v of p.vals) {
+        if (count === 0) { wmin = v; wmax = v; }
+        else {
+          if (v < wmin) wmin = v;
+          if (v > wmax) wmax = v;
+        }
+        count++;
       }
     }
     let span = wmax - wmin;
-    if (span < 8) {
-      // 太平时以平均為中心撐開，避免抖動炸滿全圖
+    if (span < 8 && count > 0 && wmax <= 100 && wmin >= 0) {
+      // 百分比且太平时以平均為中心撐開，避免抖動炸滿全圖
       const mid = (wmax + wmin) / 2;
       wmin = mid - 4;
       wmax = mid + 4;
       span = 8;
     }
+    if (span <= 0) span = 1;
     // 最大值上方留空，線不頂到頂
     const lo = Math.max(0, wmin - span * 0.15);
     const hi = wmax + span * 0.5;
     const yOf = v => Math.round(bottom - ((v - lo) / (hi - lo)) * (bottom - top));
 
-    let linePts;
-    if (pts.length > 1) {
-      // 有幾個點就撐滿全寬，新點進來舊點左移，立刻看得到捲動
-      const stepX = SIZE / (pts.length - 1);
-      linePts = pts.map((p, i) => [Math.round(i * stepX), yOf(p.v)]);
-    } else {
-      const y = yOf(pts.length === 1 ? pts[0].v : 0);
-      linePts = [[0, y], [SIZE, y]];
+    const seriesCount = pts.length > 0 ? pts[0].vals.length : 1;
+    for (let s = 0; s < seriesCount; s++) {
+      const color = SERIES_COLORS[s % SERIES_COLORS.length];
+      let linePts;
+      if (pts.length > 1) {
+        // 有幾個點就撐滿全寬，新點進來舊點左移，立刻看得到捲動
+        const stepX = SIZE / (pts.length - 1);
+        linePts = pts.map((p, i) => [Math.round(i * stepX), yOf(p.vals[s] !== undefined ? p.vals[s] : p.vals[0])]);
+      } else {
+        const v = pts.length === 1 ? (pts[0].vals[s] !== undefined ? pts[0].vals[s] : pts[0].vals[0]) : 0;
+        const y = yOf(v);
+        linePts = [[0, y], [SIZE, y]];
+      }
+
+      const lineStr = linePts.map(p => p.join(',')).join(' ');
+      const areaStr = `${linePts[0][0]},${bottom} ` + lineStr + ` ${linePts[linePts.length - 1][0]},${bottom}`;
+
+      // 用 hex 加 opacity，不用 rgba，裝置渲染器相容性較好
+      draw.polygon(areaStr).fill(color).attr({ 'fill-opacity': 0.2, stroke: 'none' });
+      draw.polyline(lineStr).fill('none').stroke({ color: color, width: 2, linecap: 'round', linejoin: 'round' }).attr({ 'stroke-opacity': 0.9 });
     }
-
-    const lineStr = linePts.map(p => p.join(',')).join(' ');
-    const areaStr = `${linePts[0][0]},${bottom} ` + lineStr + ` ${linePts[linePts.length - 1][0]},${bottom}`;
-
-    // 用 hex 加 opacity，不用 rgba，裝置渲染器相容性較好
-    draw.polygon(areaStr).fill(GREEN_AREA).attr({ 'fill-opacity': 0.25, stroke: 'none' });
-    draw.polyline(lineStr).fill('none').stroke({ color: GREEN, width: 2, linecap: 'round', linejoin: 'round' }).attr({ 'stroke-opacity': 0.9 });
   }
 
   function setIcon(icon) {
@@ -237,7 +345,7 @@ export default function SysMonitor(context, $UD) {
   }
 
   // 掛上去先畫預設圖，PI 參數進來後會重啟 poll
-  drawIcon(0);
+  drawIcon((metricKey() === 'diskio' || metricKey() === 'net') ? [0, 0] : [0]);
   startPoll();
   collectAndDraw();
 
