@@ -182,6 +182,10 @@ export default function SysMonitor(context, $UD) {
 
   // nvidia-smi 單一 process 最省，優先用；拿不到才用 si.graphics
   async function readGpuUse() {
+    if (IS_WIN) {
+      const u = sampleGpu();
+      if (u != null) return u;
+    }
     const want = (settings.gpu || '').trim();
     // 有指定名稱關鍵字就走 si.graphics 才選得到卡
     if (want && !/^\d+$/.test(want)) {
@@ -200,6 +204,23 @@ export default function SysMonitor(context, $UD) {
     }
     const u = await readGpuSi();
     return u != null ? u : 0;
+  }
+
+  // helper 的 NVML 讀數，in-process 零開銷；沒資料回 null 走舊備援
+  function sampleGpu() {
+    const s = sampler.get();
+    let list = (s && s.gpus) || [];
+    if (!Array.isArray(list)) list = [];
+    if (list.length === 0) return null;
+    const want = (settings.gpu || '').trim().toLowerCase();
+    let sel = null;
+    if (want) {
+      if (/^\d+$/.test(want) && list[Number(want)]) sel = list[Number(want)];
+      else sel = list.find(g => String(g.name || '').toLowerCase().includes(want));
+    }
+    if (!sel) sel = list[0];
+    const u = Number(sel && sel.util);
+    return Number.isFinite(u) ? clamp(u) : null;
   }
 
   async function readGpuSi() {

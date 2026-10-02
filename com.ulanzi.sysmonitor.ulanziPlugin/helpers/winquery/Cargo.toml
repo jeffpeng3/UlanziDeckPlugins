@@ -4,6 +4,7 @@ version = "1.0.0"
 edition = "2021"
 
 [dependencies]
+nvml-wrapper = "0.13.0"
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
   "Win32_System_Performance",

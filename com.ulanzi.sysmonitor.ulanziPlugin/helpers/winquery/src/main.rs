@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::time::{Duration, Instant};
 
+use nvml_wrapper::Nvml;
+
 use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::NetworkManagement::IpHelper::{
     FreeMibTable, GetIfTable2, MIB_IF_TABLE2,
@@ -174,6 +176,45 @@ fn read_mem() -> (u64, u64) {
     (0, 0)
 }
 
+struct Gpu {
+    name: String,
+    util: u32,
+}
+
+struct NvmlState {
+    nvml: Nvml,
+}
+
+impl NvmlState {
+    fn init() -> Option<NvmlState> {
+        match Nvml::init() {
+            Ok(nvml) => Some(NvmlState { nvml }),
+            Err(_) => None,
+        }
+    }
+
+    fn read_gpus(&self) -> Vec<Gpu> {
+        let mut out = Vec::new();
+        let count = match self.nvml.device_count() {
+            Ok(c) => c,
+            Err(_) => return out,
+        };
+        for i in 0..count {
+            let dev = match self.nvml.device_by_index(i) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let name = dev.name().unwrap_or_else(|_| format!("GPU{}", i));
+            let util = dev
+                .utilization_rates()
+                .map(|u| u.gpu)
+                .unwrap_or(0);
+            out.push(Gpu { name, util });
+        }
+        out
+    }
+}
+
 struct Nic {
     name: String,
     rx: u64,
@@ -218,6 +259,7 @@ struct Sample {
     dio_r: u64,
     dio_w: u64,
     nics: Vec<(String, u64, u64)>,
+    gpus: Vec<Gpu>,
 }
 
 fn emit(smp: &Sample) -> bool {
@@ -253,6 +295,18 @@ fn emit(smp: &Sample) -> bool {
         ));
     }
     s.push_str("]}");
+    s.push_str(",\"gpus\":[");
+    for (i, g) in smp.gpus.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!(
+            "{{\"name\":\"{}\",\"util\":{}}}",
+            json_escape(&g.name),
+            g.util
+        ));
+    }
+    s.push_str("]}");
     println!("{}", s);
     std::io::stdout().flush().is_ok()
 }
@@ -264,6 +318,8 @@ fn main() {
     };
     // 熱身一次，速率計數器要有兩次採樣才準
     pdh.collect();
+    // NVML 失敗就當沒顯卡，不影響其他數據
+    let nvml = NvmlState::init();
     let mut prev_nic: HashMap<String, (u64, u64)> = HashMap::new();
     let mut prev_t = Instant::now();
     loop {
@@ -293,6 +349,10 @@ fn main() {
         for n in &nics_now {
             prev_nic.insert(n.name.clone(), (n.rx, n.tx));
         }
+        let gpus = match &nvml {
+            Some(n) => n.read_gpus(),
+            None => Vec::new(),
+        };
         let sample = Sample {
             cpu,
             mem_total,
@@ -301,6 +361,7 @@ fn main() {
             dio_r,
             dio_w,
             nics,
+            gpus,
         };
         // stdout 斷掉代表上層已死，直接退出不留孤兒
         if !emit(&sample) {

@@ -61,14 +61,19 @@ class WinSampler {
     return Object.keys(this.counts).filter(k => this.counts[k] > 0 && QUERY_DEFS[k]);
   }
 
+  // gpu 吃 helper 的 NVML，不用加查詢，但要算活人數
+  alive() {
+    return Object.keys(this.counts).some(k => this.counts[k] > 0);
+  }
+
   acquire(kind) {
-    if (!QUERY_DEFS[kind]) return;
+    if (!QUERY_DEFS[kind] && kind !== 'gpu') return;
     this.counts[kind] = (this.counts[kind] || 0) + 1;
     this.rebuild();
   }
 
   release(kind) {
-    if (!QUERY_DEFS[kind]) return;
+    if (!QUERY_DEFS[kind] && kind !== 'gpu') return;
     this.counts[kind] = Math.max(0, (this.counts[kind] || 0) - 1);
     this.rebuild();
   }
@@ -76,14 +81,14 @@ class WinSampler {
   // 顯示項目變化就重建迴圈，沒人要就砍掉 process
   rebuild() {
     this.stop();
-    if (this.kinds().length > 0) this.start();
+    if (this.alive()) this.start();
   }
 
   start() {
     if (this.proc) return;
     // process 意外死掉不要立刻重起，避免重試風暴
     if (Date.now() < this.retryAt) return;
-    if (this.kinds().length === 0) return;
+    if (!this.alive()) return;
     if (this.useExe) {
       if (this.startExe()) return;
       // exe 不存在或起不來，永久退回 powershell
