@@ -12,8 +12,16 @@ const BG = '#0b0f0e';
 const GREEN = '#4ade80';
 const GREEN_FILL = 'rgba(34,197,94,0.25)';
 const GREEN_DIM = 'rgba(74,222,128,0.6)';
-const RED = '#f87171';
 const TITLE_COLOR = '#e8e8e8';
+
+// 全插件共用的更新頻率，任一 PI 或全域設定寫入後全部 instance 同步
+const Shared = { ms: 1000 };
+
+function toMs(seconds) {
+  const s = Number(seconds);
+  if (!s || s <= 0) return 1000;
+  return Math.max(500, s * 1000);
+}
 
 export default function SysMonitor(context, $UD) {
   var settings = {},
@@ -23,8 +31,7 @@ export default function SysMonitor(context, $UD) {
     lastIcon = '',
     $UD = $UD,
     history = [],
-    prevValue = null,
-    lastDelta = 0;
+    $UD = $UD;
 
   const IS_CPU = context.indexOf('.cpu') >= 0;
   const DEFAULT_TITLE = IS_CPU ? 'CPU' : 'Memory';
@@ -36,9 +43,7 @@ export default function SysMonitor(context, $UD) {
   }
 
   function refreshIntervalMs() {
-    const s = Number(settings.refresh_interval || settings.poll_status_frequency || 1);
-    if (!s || s <= 0) return 1000;
-    return Math.max(500, s * 1000);
+    return Shared.ms;
   }
 
   function historyLength() {
@@ -82,14 +87,9 @@ export default function SysMonitor(context, $UD) {
   async function collectAndDraw() {
     try {
       const v = await readValue();
-      const delta = prevValue === null || prevValue === 0
-        ? 0
-        : ((v - prevValue) / Math.abs(prevValue)) * 100;
-      prevValue = v;
-      lastDelta = delta;
       history.push(v);
       while (history.length > historyLength()) history.shift();
-      drawIcon(v, delta);
+      drawIcon(v);
     } catch (e) {
       console.log('==sysmonitor read error:', e);
     }
@@ -102,18 +102,10 @@ export default function SysMonitor(context, $UD) {
     return s + '%';
   }
 
-  function formatDelta(delta) {
-    const arrow = delta >= 0 ? '\u2191' : '\u2193';
-    return arrow + Math.abs(delta).toFixed(2) + '%';
-  }
-
-  function drawIcon(value, delta) {
+  function drawIcon(value) {
     const SIZE = 200;
     const title = (settings.title || DEFAULT_TITLE || 'Request').slice(0, 12);
-    const showDelta = settings.show_delta === false || settings.show_delta === 'off' ? false : true;
-    const up = delta >= 0;
     const numColor = GREEN;
-    const deltaColor = up ? GREEN : RED;
 
     const draw = SVG(document.documentElement).size(SIZE, SIZE);
     draw.rect(SIZE, SIZE).fill(BG);
@@ -127,27 +119,16 @@ export default function SysMonitor(context, $UD) {
       anchor: 'middle'
     }).center(SIZE / 2, 26);
 
-    // 中間大數字
+    // 中間數字，比之前縮小避免 D200 爆框
     const label = formatValue(value);
-    const numSize = label.length > 7 ? 44 : label.length > 5 ? 54 : 62;
+    const numSize = label.length > 7 ? 34 : label.length > 5 ? 40 : 46;
     draw.text(label).font({
       family: 'sans-serif',
       size: numSize,
       weight: 'bold',
       fill: numColor,
       anchor: 'middle'
-    }).center(SIZE / 2, 92);
-
-    // 變化率
-    if (showDelta) {
-      draw.text(formatDelta(delta)).font({
-        family: 'sans-serif',
-        size: 24,
-        weight: 'bold',
-        fill: deltaColor,
-        anchor: 'middle'
-      }).center(SIZE / 2, 140);
-    }
+    }).center(SIZE / 2, 86);
 
     // 底部面積走勢圖
     drawTrend(draw, SIZE);
@@ -191,12 +172,17 @@ export default function SysMonitor(context, $UD) {
 
   function updateSettings(new_settings, type) {
     settings = Object.assign({}, new_settings);
-    // 相容舊版 PI 欄位名稱
-    if (settings.poll_status_frequency && !settings.refresh_interval) {
-      settings.refresh_interval = settings.poll_status_frequency;
-    }
+    // 單顆 PI 的頻率只當初始值，之後以全域共用值為準
+    const s = settings.refresh_interval || settings.poll_status_frequency;
+    if (s) Shared.ms = toMs(s);
     startPoll();
     // 設定一變就立刻畫一次，避免空等一個週期
+    collectAndDraw();
+  }
+
+  function updateGlobalInterval(seconds) {
+    Shared.ms = toMs(seconds);
+    startPoll();
     collectAndDraw();
   }
 
@@ -220,13 +206,14 @@ export default function SysMonitor(context, $UD) {
   }
 
   // 掛上去先畫預設圖，PI 參數進來後會重啟 poll
-  drawIcon(0, 0);
+  drawIcon(0);
   startPoll();
   collectAndDraw();
 
   return {
     refreshNow: refreshNow,
     updateSettings: updateSettings,
+    updateGlobalInterval: updateGlobalInterval,
     destroy: destroy,
     setActive: setActive
   };

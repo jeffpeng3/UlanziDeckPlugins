@@ -9,7 +9,10 @@ const ACTION_CACHES = {}
 const $UD = new UlanziApi();
 
 $UD.connect('com.ulanzi.ulanzistudio.sysmonitor')
-$UD.onConnected(conn => {})
+$UD.onConnected(conn => {
+  // 啟動時拉一次已存的全域更新頻率
+  try { $UD.getGlobalSettings(); } catch (e) { console.log('getGlobalSettings failed:', e); }
+})
 
 
 //把插件某个功能配置到按键上
@@ -63,6 +66,20 @@ $UD.onParamFromApp(jsn => {
 //监听插件功能配置信息变化
 $UD.onParamFromPlugin(jsn => {
   onSetSettings(jsn)
+})
+
+//全域更新频率：任一 PI 修改后同步全部按键
+$UD.onDidReceiveGlobalSettings(jsn => {
+  const settings = jsn.settings || jsn.param || {};
+  const seconds = settings.refresh_interval;
+  if (seconds === undefined) return;
+  console.log('===onDidReceiveGlobalSettings:', seconds)
+  for (const context of Object.keys(ACTION_CACHES)) {
+    const instance = ACTION_CACHES[context];
+    if (instance && instance.updateGlobalInterval) {
+      instance.updateGlobalInterval(seconds);
+    }
+  }
 })
 
 
