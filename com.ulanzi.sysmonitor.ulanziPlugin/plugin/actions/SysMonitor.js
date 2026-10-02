@@ -10,8 +10,7 @@ registerWindow(window, document)
 
 const BG = '#0b0f0e';
 const GREEN = '#4ade80';
-const GREEN_FILL = 'rgba(34,197,94,0.25)';
-const GREEN_DIM = 'rgba(74,222,128,0.6)';
+const GREEN_AREA = '#22c55e';
 const TITLE_COLOR = '#e8e8e8';
 
 // 全插件共用的更新頻率，任一 PI 或全域設定寫入後全部 instance 同步
@@ -46,10 +45,9 @@ export default function SysMonitor(context, $UD) {
     return Shared.ms;
   }
 
-  function historyLength() {
-    const n = Number(settings.history_length || 30);
-    return Math.min(60, Math.max(10, n || 30));
-  }
+  // 走勢固定顯示過去 60 秒，靠右對齊持續捲動
+  const WINDOW_MS = 60000;
+  const MAX_POINTS = 180;
 
   function decimals() {
     const d = Number(settings.decimals);
@@ -87,8 +85,11 @@ export default function SysMonitor(context, $UD) {
   async function collectAndDraw() {
     try {
       const v = await readValue();
-      history.push(v);
-      while (history.length > historyLength()) history.shift();
+      const now = Date.now();
+      history.push({ t: now, v: v });
+      // 只留過去 60 秒，外加總數上限避免記憶體膨脹
+      while (history.length > 0 && now - history[0].t > WINDOW_MS) history.shift();
+      while (history.length > MAX_POINTS) history.shift();
       drawIcon(v);
     } catch (e) {
       console.log('==sysmonitor read error:', e);
@@ -128,7 +129,7 @@ export default function SysMonitor(context, $UD) {
       weight: 'bold',
       fill: numColor,
       anchor: 'middle'
-    }).center(SIZE / 2, 86);
+    }).center(SIZE / 2, 78);
 
     // 底部面積走勢圖
     drawTrend(draw, SIZE);
@@ -140,23 +141,53 @@ export default function SysMonitor(context, $UD) {
   }
 
   function drawTrend(draw, SIZE) {
-    const pts = history.length > 1 ? history.slice() : [0, 0];
-    const top = 158;
-    const bottom = SIZE;
-    const n = pts.length;
-    const stepX = SIZE / Math.max(n - 1, 1);
+    const now = Date.now();
+    const cutoff = now - WINDOW_MS;
+    const pts = history.filter(p => p.t >= cutoff);
+    // 圖區往上撐高，底部留 15% 空白
+    const top = 112;
+    const bottom = 170;
 
-    const linePts = pts.map((v, i) => {
-      const x = Math.round(i * stepX);
-      const y = Math.round(bottom - (clamp(v) / 100) * (bottom - top));
-      return [x, y];
-    });
+    // 依窗口最大最小縮放，波動再小也看得見
+    let wmin = 0;
+    let wmax = 0;
+    if (pts.length > 0) {
+      wmin = pts[0].v;
+      wmax = pts[0].v;
+      for (const p of pts) {
+        if (p.v < wmin) wmin = p.v;
+        if (p.v > wmax) wmax = p.v;
+      }
+    }
+    let span = wmax - wmin;
+    if (span < 8) {
+      // 太平时以平均為中心撐開，避免抖動炸滿全圖
+      const mid = (wmax + wmin) / 2;
+      wmin = mid - 4;
+      wmax = mid + 4;
+      span = 8;
+    }
+    // 最大值上方留空，線不頂到頂
+    const lo = Math.max(0, wmin - span * 0.15);
+    const hi = wmax + span * 0.5;
+    const yOf = v => Math.round(bottom - ((v - lo) / (hi - lo)) * (bottom - top));
+
+    let linePts;
+    if (pts.length > 1) {
+      // 有幾個點就撐滿全寬，新點進來舊點左移，立刻看得到捲動
+      const stepX = SIZE / (pts.length - 1);
+      linePts = pts.map((p, i) => [Math.round(i * stepX), yOf(p.v)]);
+    } else {
+      const y = yOf(pts.length === 1 ? pts[0].v : 0);
+      linePts = [[0, y], [SIZE, y]];
+    }
 
     const lineStr = linePts.map(p => p.join(',')).join(' ');
-    const areaStr = `0,${bottom} ` + lineStr + ` ${SIZE},${bottom}`;
+    const areaStr = `${linePts[0][0]},${bottom} ` + lineStr + ` ${linePts[linePts.length - 1][0]},${bottom}`;
 
-    draw.polygon(areaStr).fill(GREEN_FILL).stroke('none');
-    draw.polyline(lineStr).fill('none').stroke({ color: GREEN_DIM, width: 2, linecap: 'round', linejoin: 'round' });
+    // 用 hex 加 opacity，不用 rgba，裝置渲染器相容性較好
+    draw.polygon(areaStr).fill(GREEN_AREA).attr({ 'fill-opacity': 0.25, stroke: 'none' });
+    draw.polyline(lineStr).fill('none').stroke({ color: GREEN, width: 2, linecap: 'round', linejoin: 'round' }).attr({ 'stroke-opacity': 0.9 });
   }
 
   function setIcon(icon) {

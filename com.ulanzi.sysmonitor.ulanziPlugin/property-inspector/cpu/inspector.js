@@ -46,7 +46,7 @@ $UD.onDidReceiveGlobalSettings(jsonObj => {
 function normalize(value) {
   const out = Object.assign({}, value);
   out.refresh_interval = Math.min(60, Math.max(1, Number(out.refresh_interval) || 1));
-  out.history_length = Math.min(60, Math.max(10, Number(out.history_length) || 30));
+  delete out.history_length;
   if (!out.metric) {
     out.metric = document.querySelector('input[name="metric"]')
       ? document.querySelector('input[name="metric"]').value
