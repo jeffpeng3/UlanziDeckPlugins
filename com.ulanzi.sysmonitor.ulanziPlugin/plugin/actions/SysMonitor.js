@@ -1,4 +1,5 @@
 import si from 'systeminformation';
+import { execFile } from 'child_process';
 import { createSVGWindow } from 'svgdom'
 import { SVG, registerWindow } from '@svgdotjs/svg.js';
 
@@ -89,9 +90,7 @@ export default function SysMonitor(context, $UD) {
       return [await readDiskUse()];
     }
     if (key === 'diskio') {
-      const io = await si.disksIO().catch(() => null);
-      return [Math.max(0, Number(io && (io.rIO_sec || io.rIO)) || 0),
-              Math.max(0, Number(io && (io.wIO_sec || io.wIO)) || 0)];
+      return await readDiskIO();
     }
     if (key === 'net') {
       return await readNet();
@@ -99,6 +98,45 @@ export default function SysMonitor(context, $UD) {
     return [0];
   }
 
+  // systeminformation v5 的 disksIO 在 Windows 沒實作，直接回 null
+  // Windows 改走 PowerShell 效能計數器 _Total，單次查詢即每秒值
+  async function readDiskIO() {
+    if (process.platform === 'win32') {
+      try {
+        const out = await execPs(
+          "Get-CimInstance -ClassName Win32_PerfFormattedData_PerfDisk_PhysicalDisk" +
+          " | Where-Object { $_.Name -eq '_Total' }" +
+          " | Select-Object DiskReadBytesPerSec,DiskWriteBytesPerSec" +
+          " | ConvertTo-Json -Compress"
+        );
+        const j = JSON.parse(out);
+        return [Math.max(0, Number(j.DiskReadBytesPerSec) || 0),
+                Math.max(0, Number(j.DiskWriteBytesPerSec) || 0)];
+      } catch (e) {
+        console.log('==diskio powershell failed:', e && e.message);
+        return [0, 0];
+      }
+    }
+    const io = await si.disksIO().catch(() => null);
+    return [Math.max(0, Number(io && (io.rIO_sec || io.rIO)) || 0),
+            Math.max(0, Number(io && (io.wIO_sec || io.wIO)) || 0)];
+  }
+
+  function execCmd(file, args) {
+    return new Promise((resolve, reject) => {
+      execFile(file, args || [],
+        { timeout: 5000, windowsHide: true },
+        (err, stdout) => {
+          if (err) reject(err);
+          else resolve(String(stdout).trim());
+        });
+    });
+  }
+
+  function execPs(cmd) {
+    return execCmd('powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', cmd]);
+  }
   async function readDiskUse() {
     const list = await si.fsSize().catch(() => []);
     if (!list || list.length === 0) return 0;
