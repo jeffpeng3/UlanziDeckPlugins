@@ -1,0 +1,62 @@
+{
+  "Version": "1.0.0",
+  "Author": "Ulanzi",
+  "Name": "System Monitor",
+  "Description": "CPU / Memory monitor for D200",
+  "Icon": "assets/icons/pluginIcon.png",
+  "Category": "System Monitor",
+  "CategoryIcon": "assets/icons/category.png",
+  "CodePath": "dist/app.js",
+  "Type": "JavaScript",
+  "Inspect": "--inspect=127.0.0.1:9202",
+  "PrivateAPI": true,
+  "SupportedInMultiActions": false,
+  "UUID": "com.ulanzi.ulanzistudio.sysmonitor",
+  "Actions": [
+    {
+      "Name": "CPU Monitor",
+      "Icon": "assets/icons/text.svg",
+      "PropertyInspectorPath": "property-inspector/cpu/inspector.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/text.svg"
+        }
+      ],
+      "Tooltip": "Show CPU usage with trend chart",
+      "UUID": "com.ulanzi.ulanzistudio.sysmonitor.cpu",
+      "SupportedInMultiActions": false,
+      "Controllers": ["Keypad"],
+      "Devices": ["D200"]
+    },
+    {
+      "Name": "Memory Monitor",
+      "Icon": "assets/icons/text.svg",
+      "PropertyInspectorPath": "property-inspector/mem/inspector.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/text.svg"
+        }
+      ],
+      "Tooltip": "Show memory usage with trend chart",
+      "UUID": "com.ulanzi.ulanzistudio.sysmonitor.mem",
+      "SupportedInMultiActions": false,
+      "Controllers": ["Keypad"],
+      "Devices": ["D200"]
+    }
+  ],
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "10.11"
+    },
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    }
+  ],
+  "Software": {
+    "MinVersion": "2.1.4"
+  }
+}

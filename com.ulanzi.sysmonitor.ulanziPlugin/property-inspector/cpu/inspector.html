@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+    content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,minimal-ui,viewport-fit=cover" />
+  <title>CPU Monitor</title>
+  <link rel="stylesheet" href="../../libs/css/uspi.css">
+  <style>
+    .uspi-item-label {
+      width: 130px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="udpi-wrapper hidden uspi-wrapper">
+
+    <form id="property-inspector">
+      <div class="uspi-heading" data-localize>CPU Monitor</div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>Title</div>
+        <input class="uspi-item-value" type="text" id="title" name="title" value="CPU">
+      </div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>Refresh interval</div>
+        <input class="uspi-item-value" type="number" id="refresh_interval" name="refresh_interval" value="1" min="1" max="60" step="1">
+        <ud data-localize style="line-height: 26px;">sec</ud>
+      </div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>History points</div>
+        <input class="uspi-item-value" type="number" id="history_length" name="history_length" value="30" min="10" max="60" step="1">
+      </div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>Decimals</div>
+        <select class="uspi-item-value select" id="decimals" name="decimals">
+          <option value="0">0</option>
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+        </select>
+      </div>
+
+      <div class="uspi-item" type="checkbox">
+        <div class="uspi-item-value">
+          <div class="uspi-item-child">
+            <input id="show_delta" type="checkbox" name="show_delta" checked />
+            <label for="show_delta" data-localize>Show change rate</label>
+          </div>
+        </div>
+      </div>
+
+      <input type="hidden" name="metric" value="cpu" />
+    </form>
+
+  </div>
+
+  <script src="../../libs/js/constants.js"></script>
+  <script src="../../libs/js/eventEmitter.js"></script>
+  <script src="../../libs/js/timers.js"></script>
+  <script src="../../libs/js/utils.js"></script>
+  <script src="../../libs/js/ulanziApi.js"></script>
+
+  <script src="./inspector.js"></script>
+
+</body>
+
+</html>

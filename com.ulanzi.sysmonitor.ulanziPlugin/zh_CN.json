@@ -1,0 +1,24 @@
+{
+  "Name": "系統監控",
+  "Description": "D200 用 CPU / 記憶體監控",
+  "Actions": [
+    {
+      "Name": "CPU 監控",
+      "Tooltip": "顯示 CPU 使用率與走勢圖"
+    },
+    {
+      "Name": "記憶體監控",
+      "Tooltip": "顯示記憶體使用率與走勢圖"
+    }
+  ],
+  "Localization": {
+    "CPU Monitor": "CPU 監控",
+    "Memory Monitor": "記憶體監控",
+    "Title": "標題",
+    "Refresh interval": "更新頻率",
+    "History points": "走勢點數",
+    "Decimals": "小數位數",
+    "Show change rate": "顯示變化率",
+    "sec": "秒"
+  }
+}

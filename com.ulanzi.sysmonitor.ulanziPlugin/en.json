@@ -1,0 +1,24 @@
+{
+  "Name": "System Monitor",
+  "Description": "CPU / Memory monitor for D200",
+  "Actions": [
+    {
+      "Name": "CPU Monitor",
+      "Tooltip": "Show CPU usage with trend chart"
+    },
+    {
+      "Name": "Memory Monitor",
+      "Tooltip": "Show memory usage with trend chart"
+    }
+  ],
+  "Localization": {
+    "CPU Monitor": "CPU Monitor",
+    "Memory Monitor": "Memory Monitor",
+    "Title": "Title",
+    "Refresh interval": "Refresh interval",
+    "History points": "History points",
+    "Decimals": "Decimals",
+    "Show change rate": "Show change rate",
+    "sec": "sec"
+  }
+}
