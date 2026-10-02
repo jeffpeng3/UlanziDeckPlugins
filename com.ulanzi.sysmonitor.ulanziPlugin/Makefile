@@ -5,7 +5,7 @@ VERSION := $(shell node -p "require('./manifest.json').Version")
 OUT := release/$(PLUGIN_NAME)-$(VERSION).zip
 INSTALL_DIR := /mnt/c/Users/user/AppData/Roaming/Ulanzi/UlanziDeck/Plugins/$(PLUGIN_NAME)
 
-FILES := manifest.json dist assets property-inspector libs en.json zh_CN.json zh_HK.json
+FILES := manifest.json package.json dist assets property-inspector libs en.json zh_CN.json zh_HK.json
 
 .PHONY: build package install verify clean
 
@@ -24,7 +24,6 @@ install: build
 	rsync -a --delete-excluded \
 		--exclude 'node_modules/' \
 		--exclude 'package-lock.json' \
-		--exclude 'package.json' \
 		--exclude 'webpack.config.js' \
 		--exclude 'Makefile' \
 		--exclude 'release/' \
