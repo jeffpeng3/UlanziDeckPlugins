@@ -14,7 +14,7 @@
     "@svgdotjs/svg.js": "3.2.4",
     "svgdom": "0.1.19",
     "systeminformation": "^5.22.0",
-    "ws": "8.18.0"
+    "ws": "8.21.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.9",
