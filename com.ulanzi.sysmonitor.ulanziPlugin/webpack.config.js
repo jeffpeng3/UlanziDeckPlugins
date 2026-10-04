@@ -21,7 +21,7 @@ export default {
   module: {
     rules: [
       {
-        //特殊处理svgdom打包后的fonts路径
+        //特殊处理svgdom打包后的fonts路径（svgdom >= 0.1.29 用 fileDirname）
         test: path.resolve(__dirname, 'node_modules/svgdom/src/utils/defaults.js'),
         use: [
           {
@@ -29,12 +29,12 @@ export default {
             options: {
               multiple: [
                 {
-                  search: /__dirname\s*=\s*[^\)]+\)/,
-                  replace:" __dirname = dirname(process.argv[1]"
+                  search: /const fileDirname\s*=\s*[^;]+;?/,
+                  replace: "const fileDirname = dirname(process.argv[1]);",
                 },
                 {
-                  search: /fontDir\s*=\s*[^\)]+\)/,
-                  replace:" fontDir = join(__dirname, 'fonts/')"
+                  search: /join\(fileDirname,\s*'\.\.\/\.\.\/'\s*,\s*'fonts\/'\)/,
+                  replace: "join(fileDirname, 'fonts/')",
                 },
               ],
             },

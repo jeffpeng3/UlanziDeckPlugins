@@ -318,15 +318,38 @@ export default function SysMonitor(context, $UD) {
     return [Math.max(0, rx), Math.max(0, tx)];
   }
 
+  // batt 顯示保留：dongle 偶發靜默時沿用上次成功讀數（最多 120 秒），
+  // 避免按鍵在數字與 -- 之間閃爍；超過才顯示無資料
+  var lastBatt = null;
+  var lastBattAt = 0;
+  const BATT_HOLD_MS = 120000;
+
+  function drawBatteryCached() {
+    const cur = readBatt();
+    const now = Date.now();
+    if (cur && cur.level != null) {
+      lastBatt = cur;
+      lastBattAt = now;
+      drawBattery(cur);
+      return;
+    }
+    if (lastBatt && now - lastBattAt < BATT_HOLD_MS) {
+      drawBattery(lastBatt);
+      return;
+    }
+    drawBattery(null);
+  }
   // 耳機電量：讀 helper 的 hp 快取；present=false 或沒啟動都回 null 畫 --
+  // level 0 視為無效（錯位回覆的髒資料，真 0.x% 跟沒電沒區別）
   function readBatt() {
     if (!IS_WIN) return null;
     const s = sampler.get();
     const hp = s && s.hp;
     if (!hp || !hp.present) return null;
     const level = Number(hp.level);
+    if (!Number.isFinite(level) || level <= 0) return null;
     return {
-      level: Number.isFinite(level) ? Math.max(0, Math.min(100, Math.round(level))) : null,
+      level: Math.max(1, Math.min(100, Math.round(level))),
       charging: hp.charging === true ? true : (hp.charging === false ? false : null)
     };
   }
@@ -346,9 +369,9 @@ export default function SysMonitor(context, $UD) {
     // 常駐採樣死掉超過 10 秒就重起，內有重試節流
     if (IS_WIN && sampler.age() > 10000) sampler.start();
     try {
-      // batt 走圓環專用畫法，不進走勢歷史
+      // batt 走圓環專用畫法，不進走勢歷史；帶快取避免靜默時閃爍
       if (metricKey() === 'batt') {
-        drawBattery(readBatt());
+        drawBatteryCached();
         return;
       }
       const vals = await readStats();

@@ -32,7 +32,7 @@ use windows::Win32::System::Threading::WaitForSingleObject;
 const FALLBACK_REPORT_LEN: usize = 65;
 const DRAIN_MS: u32 = 30;
 const REPLY_MS: u32 = 500;
-const POLL_SECS: u64 = 10;
+const POLL_SECS: u64 = 30;
 
 // POC：bytes([0, 2, bank, 2, cmd]) + pad 到 output report 長度
 fn cmd_report(bank: u8, cmd: u8, out_len: usize) -> Vec<u8> {
