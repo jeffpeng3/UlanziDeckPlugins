@@ -12,7 +12,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@svgdotjs/svg.js": "3.2.4",
-    "svgdom": "0.1.19",
+    "svgdom": "0.1.29",
     "systeminformation": "^5.22.0",
     "ws": "8.21.0"
   },
