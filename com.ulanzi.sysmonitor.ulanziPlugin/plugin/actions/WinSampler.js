@@ -46,6 +46,11 @@ class WinSampler {
     this.retryAt = 0;
     this.gotData = false;
     this.useExe = true;
+    // exe 失敗退回 ps 後，每 5 分鐘重試一次（安裝中途起不來也能自癒）
+    this.exeRetryAt = 0;
+    // 診斷 log（進 Studio log 檔）：只在後端切換與 hp 變化時印
+    this._loggedBackend = '';
+    this._lastHpKey = '';
   }
 
   // Rust 版 exe 優先，跑不起來就退回 powershell 迴圈
@@ -67,13 +72,13 @@ class WinSampler {
   }
 
   acquire(kind) {
-    if (!QUERY_DEFS[kind] && kind !== 'gpu') return;
+    if (!QUERY_DEFS[kind] && kind !== 'gpu' && kind !== 'batt') return;
     this.counts[kind] = (this.counts[kind] || 0) + 1;
     this.rebuild();
   }
 
   release(kind) {
-    if (!QUERY_DEFS[kind] && kind !== 'gpu') return;
+    if (!QUERY_DEFS[kind] && kind !== 'gpu' && kind !== 'batt') return;
     this.counts[kind] = Math.max(0, (this.counts[kind] || 0) - 1);
     this.rebuild();
   }
@@ -89,9 +94,13 @@ class WinSampler {
     // process 意外死掉不要立刻重起，避免重試風暴
     if (Date.now() < this.retryAt) return;
     if (!this.alive()) return;
+    if (!this.useExe && Date.now() >= this.exeRetryAt) {
+      this.exeRetryAt = Date.now() + 5 * 60 * 1000;
+      this.useExe = true;
+    }
     if (this.useExe) {
       if (this.startExe()) return;
-      // exe 不存在或起不來，永久退回 powershell
+      // exe 不存在或起不來，退回 powershell，下次重試時間已約好
       this.useExe = false;
     }
     this.startPs();
@@ -106,6 +115,10 @@ class WinSampler {
       this.proc = proc;
       this.buf = '';
       this.gotData = false;
+      if (this._loggedBackend !== 'exe') {
+        this._loggedBackend = 'exe';
+        console.log('===sampler backend: exe', exe);
+      }
       proc.stdout.on('data', chunk => this.onData(String(chunk)));
       proc.on('close', () => {
         if (this.proc === proc) this.proc = null;
@@ -130,6 +143,10 @@ class WinSampler {
 
   // 備援：powershell 迴圈，協定相同
   startPs() {
+    if (this._loggedBackend !== 'ps') {
+      this._loggedBackend = 'ps';
+      console.log('===sampler backend: powershell (hp unavailable)');
+    }
     try {
       const proc = spawn('powershell.exe',
         ['-NoProfile', '-NonInteractive', '-Command', buildScript(this.kinds())],
@@ -169,6 +186,12 @@ class WinSampler {
         this.sample = JSON.parse(s);
         this.sampleAt = Date.now();
         this.gotData = true;
+        // hp 有變化才印（進 Studio log 檔），方便追蹤耳機狀態
+        const hpKey = JSON.stringify((this.sample && this.sample.hp) || null);
+        if (hpKey !== this._lastHpKey) {
+          this._lastHpKey = hpKey;
+          console.log('===hp sample:', hpKey);
+        }
       } catch (e) { /* 半包等下次 */ }
     }
   }

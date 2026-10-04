@@ -25,6 +25,10 @@
     {
       "Name": "顯示卡監控",
       "Tooltip": "顯示顯卡使用率與走勢圖"
+    },
+    {
+      "Name": "耳機電量",
+      "Tooltip": "顯示耳機電量與充電狀態"
     }
   ],
   "Localization": {
@@ -40,6 +44,7 @@
     "Interface": "網路卡",
     "GPU Monitor": "顯示卡監控",
     "GPU select": "顯卡選擇",
-    "Disk Active": "硬碟活動時間"
+    "Disk Active": "硬碟活動時間",
+    "Headphone Battery": "耳機電量"
   }
 }

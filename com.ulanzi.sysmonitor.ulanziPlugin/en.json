@@ -25,6 +25,10 @@
     {
       "Name": "GPU Monitor",
       "Tooltip": "Show GPU usage with trend chart"
+    },
+    {
+      "Name": "Headphone Battery",
+      "Tooltip": "Show headphone battery level and charging state"
     }
   ],
   "Localization": {
@@ -40,6 +44,7 @@
     "Interface": "Interface",
     "GPU Monitor": "GPU Monitor",
     "GPU select": "GPU select",
-    "Disk Active": "Disk Active"
+    "Disk Active": "Disk Active",
+    "Headphone Battery": "Headphone Battery"
   }
 }

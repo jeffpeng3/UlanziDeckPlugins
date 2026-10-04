@@ -40,11 +40,12 @@ export default function SysMonitor(context, $UD) {
     history = [],
     $UD = $UD;
 
-  const TITLES = { cpu: 'CPU', mem: 'Memory', disk: 'Disk', diskio: 'Disk IO', net: 'Net', gpu: 'GPU' };
+  const TITLES = { cpu: 'CPU', mem: 'Memory', disk: 'Disk', diskio: 'Disk IO', net: 'Net', gpu: 'GPU', batt: 'Battery' };
 
   function metricKey() {
     const m = settings.metric;
-    if (m === 'cpu' || m === 'mem' || m === 'disk' || m === 'diskio' || m === 'net' || m === 'gpu') return m;
+    if (m === 'cpu' || m === 'mem' || m === 'disk' || m === 'diskio' || m === 'net' || m === 'gpu' || m === 'batt') return m;
+    if (context.indexOf('.batt') >= 0) return 'batt';
     if (context.indexOf('.diskio') >= 0) return 'diskio';
     if (context.indexOf('.disk') >= 0) return 'disk';
     if (context.indexOf('.net') >= 0) return 'net';
@@ -317,6 +318,19 @@ export default function SysMonitor(context, $UD) {
     return [Math.max(0, rx), Math.max(0, tx)];
   }
 
+  // 耳機電量：讀 helper 的 hp 快取；present=false 或沒啟動都回 null 畫 --
+  function readBatt() {
+    if (!IS_WIN) return null;
+    const s = sampler.get();
+    const hp = s && s.hp;
+    if (!hp || !hp.present) return null;
+    const level = Number(hp.level);
+    return {
+      level: Number.isFinite(level) ? Math.max(0, Math.min(100, Math.round(level))) : null,
+      charging: hp.charging === true ? true : (hp.charging === false ? false : null)
+    };
+  }
+
   function clamp(v) {
     if (v < 0) return 0;
     if (v > 100) return 100;
@@ -332,6 +346,11 @@ export default function SysMonitor(context, $UD) {
     // 常駐採樣死掉超過 10 秒就重起，內有重試節流
     if (IS_WIN && sampler.age() > 10000) sampler.start();
     try {
+      // batt 走圓環專用畫法，不進走勢歷史
+      if (metricKey() === 'batt') {
+        drawBattery(readBatt());
+        return;
+      }
       const vals = await readStats();
       const now = Date.now();
       history.push({ t: now, vals: vals });
@@ -487,6 +506,72 @@ export default function SysMonitor(context, $UD) {
     }
   }
 
+  // 耳機電量圓環：level% 填滿圓環，充電中綠色，未充電白色，無資料灰色 --
+  function drawBattery(st) {
+    const SIZE = 200;
+    const TRACK = '#2a2f2d';
+    const WHITE = '#e8e8e8';
+    const GRAY = '#6b7280';
+    const title = (settings.title || defaultTitle() || 'Request').slice(0, 12);
+    const has = !!(st && st.level != null);
+    const pct = has ? st.level : 0;
+    const charging = !!(st && st.charging === true);
+    const color = has ? (charging ? GREEN : WHITE) : GRAY;
+
+    const draw = SVG(document.documentElement).size(SIZE, SIZE);
+    draw.rect(SIZE, SIZE).fill(BG);
+
+    draw.text(title).font({
+      family: 'sans-serif',
+      size: 26,
+      weight: 500,
+      fill: TITLE_COLOR,
+      anchor: 'middle'
+    }).center(SIZE / 2, 26);
+
+    const cx = SIZE / 2, cy = 118, r = 62, w = 14;
+    draw.circle(r * 2).center(cx, cy).fill('none').stroke({ color: TRACK, width: w });
+    if (has && pct > 0) {
+      if (pct >= 100) {
+        draw.circle(r * 2).center(cx, cy).fill('none')
+          .stroke({ color: color, width: w, linecap: 'round' });
+      } else {
+        // 從 12 點鐘方向順時針畫弧
+        const a0 = -Math.PI / 2;
+        const a1 = a0 + (pct / 100) * Math.PI * 2;
+        const large = pct > 50 ? 1 : 0;
+        const x0 = (cx + r * Math.cos(a0)).toFixed(1);
+        const y0 = (cy + r * Math.sin(a0)).toFixed(1);
+        const x1 = (cx + r * Math.cos(a1)).toFixed(1);
+        const y1 = (cy + r * Math.sin(a1)).toFixed(1);
+        draw.path(`M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1}`)
+          .fill('none').stroke({ color: color, width: w, linecap: 'round' });
+      }
+    }
+
+    const label = has ? Math.round(pct) + '%' : '--';
+    draw.text(label).font({
+      family: 'sans-serif',
+      size: label.length > 4 ? 32 : 44,
+      weight: 'bold',
+      fill: color,
+      anchor: 'middle'
+    }).center(cx, cy + 2);
+
+    // 充電中：數字下方畫閃電
+    if (has && charging) {
+      const bx = cx, by = cy + 40;
+      draw.polygon(`${bx + 2},${by - 10} ${bx - 6},${by + 2} ${bx - 1},${by + 2} ` +
+        `${bx - 3},${by + 10} ${bx + 6},${by - 2} ${bx + 1},${by - 2}`)
+        .fill(GREEN).attr({ stroke: 'none' });
+    }
+
+    const svgContent = draw.svg();
+    const base64Svg = Buffer.from(svgContent).toString('base64');
+    setIcon('data:image/svg+xml;base64,' + base64Svg);
+    draw.clear();
+  }
+
   function setIcon(icon) {
     if (!allowSend) return
     lastIcon = icon || lastIcon
@@ -554,7 +639,8 @@ export default function SysMonitor(context, $UD) {
 
   // 掛上去先畫預設圖，PI 參數進來後會重啟 poll
   ensureSampler();
-  drawIcon((metricKey() === 'diskio' || metricKey() === 'net') ? [0, 0] : [0]);
+  if (metricKey() === 'batt') drawBattery(null);
+  else drawIcon((metricKey() === 'diskio' || metricKey() === 'net') ? [0, 0] : [0]);
   startPoll();
   collectAndDraw();
 

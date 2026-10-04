@@ -22,6 +22,8 @@ use windows::Win32::System::Performance::{
 };
 use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
+mod headphone;
+
 const DRIVE_FIXED: u32 = 3;
 const IF_TYPE_SOFTWARE_LOOPBACK: u32 = 24;
 const IF_TYPE_TUNNEL: u32 = 131;
@@ -519,6 +521,7 @@ struct Sample {
     disk_actives: Vec<(String, f64)>,
     nics: Vec<(String, u64, u64)>,
     gpus: Vec<Gpu>,
+    hp: Option<headphone::HeadphoneStatus>,
 }
 
 fn emit(smp: &Sample) -> bool {
@@ -579,12 +582,31 @@ fn emit(smp: &Sample) -> bool {
             g.util
         ));
     }
-    s.push_str("]}");
+    s.push_str("]");
+    // hp：耳機電量接口（VID/PID 寫死在 helper 內）
+    s.push_str(",\"hp\":");
+    match &smp.hp {
+        Some(h) => {
+            let level = h.level.map(|v| v.to_string()).unwrap_or_else(|| "null".to_string());
+            let charging = h
+                .charging
+                .map(|v| if v { "true" } else { "false" })
+                .unwrap_or("null");
+            s.push_str(&format!(
+                "{{\"present\":{},\"level\":{},\"charging\":{}}}",
+                h.present, level, charging
+            ));
+        }
+        None => s.push_str("null"),
+    }
+    s.push('}');
     println!("{}", s);
     std::io::stdout().flush().is_ok()
 }
 
 fn main() {
+    // 耳機 HID 目標寫死（headphone.rs 的 HID_VID/HID_PID），背景執行緒常駐查詢
+    let hp_mon = headphone::HeadphoneMon::start();
     let pdh = match Pdh::open() {
         Some(p) => p,
         None => std::process::exit(1),
@@ -647,6 +669,7 @@ fn main() {
             disk_actives,
             nics,
             gpus,
+            hp: Some(hp_mon.get()),
         };
         // stdout 斷掉代表上層已死，直接退出不留孤兒
         if !emit(&sample) {
