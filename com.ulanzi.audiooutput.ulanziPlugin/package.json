@@ -11,7 +11,7 @@
   "author": "ulanzi",
   "license": "Apache-2.0",
   "dependencies": {
-    "ws": "8.18.0"
+    "ws": "8.21.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.9",
