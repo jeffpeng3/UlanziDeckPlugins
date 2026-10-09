@@ -15,10 +15,19 @@ registerWindow(window, document)
 const BG = '#0b0f0e';
 const GREEN = '#4ade80';
 const YELLOW = '#facc15';
+const ORANGE = '#fb923c';
+const RED = '#f87171';
 const TITLE_COLOR = '#e8e8e8';
 
 // 雙系列顏色：讀/下傳綠，上傳/寫黃
 const SERIES_COLORS = ['#4ade80', '#facc15'];
+
+// 使用率高於 70% 橘色，高於 90% 紅色（含 70、90 本身）
+function thresholdColor(v) {
+  if (v >= 90) return RED;
+  if (v >= 70) return ORANGE;
+  return GREEN;
+}
 const SERIES_ARROWS = ['\u2193', '\u2191'];
 
 // 全插件共用的更新頻率，任一 PI 或全域設定寫入後全部 instance 同步
@@ -385,7 +394,7 @@ export default function SysMonitor(context, $UD) {
     if (key === 'diskio' || key === 'net') {
       return [{ text: formatBytes(vals[0]), color: SERIES_COLORS[0] }];
     }
-    return [{ text: formatPct(vals[0]), color: GREEN }];
+    return [{ text: formatPct(vals[0]), color: thresholdColor(vals[0]) }];
   }
 
   function drawIcon(vals) {
@@ -434,8 +443,8 @@ export default function SysMonitor(context, $UD) {
       }).center(SIZE / 2, 78);
     }
 
-    // 底部面積走勢圖
-    drawTrend(draw, SIZE);
+    // 底部面積走勢圖，單系列跟著數字門檻色走
+    drawTrend(draw, SIZE, labels.map(l => l.color));
 
     const svgContent = draw.svg();
     const base64Svg = Buffer.from(svgContent).toString('base64');
@@ -443,7 +452,8 @@ export default function SysMonitor(context, $UD) {
     draw.clear();
   }
 
-  function drawTrend(draw, SIZE) {
+  function drawTrend(draw, SIZE, colors) {
+    const lineColors = (Array.isArray(colors) && colors.length > 0) ? colors : SERIES_COLORS;
     const now = Date.now();
     const cutoff = now - WINDOW_MS;
     const pts = history.filter(p => p.t >= cutoff);
@@ -481,7 +491,7 @@ export default function SysMonitor(context, $UD) {
 
     const seriesCount = pts.length > 0 ? pts[0].vals.length : 1;
     for (let s = 0; s < seriesCount; s++) {
-      const color = SERIES_COLORS[s % SERIES_COLORS.length];
+      const color = lineColors[s % lineColors.length];
       let linePts;
       if (pts.length > 1) {
         // 有幾個點就撐滿全寬，新點進來舊點左移，立刻看得到捲動
