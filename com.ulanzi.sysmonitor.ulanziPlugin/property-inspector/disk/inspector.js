@@ -47,6 +47,7 @@ function normalize(value) {
   const out = Object.assign({}, value);
   out.refresh_interval = Math.min(60, Math.max(1, Number(out.refresh_interval) || 1));
   delete out.history_length;
+  delete out.target;
   if (!out.metric) {
     out.metric = document.querySelector('input[name="metric"]')
       ? document.querySelector('input[name="metric"]').value
@@ -58,8 +59,9 @@ function normalize(value) {
 
 function settingSaveParam(params) {
   ACTION_SETTING = Object.assign({}, params);
-  // 舊存檔殘留的 show_delta 直接丟掉
+  // 舊存檔殘留的 show_delta、target 直接丟掉
   delete ACTION_SETTING.show_delta;
+  delete ACTION_SETTING.target;
   Utils.setFormValue(ACTION_SETTING, form);
   // 新按鍵第一次沒有 param，填預設值
   if (!params || JSON.stringify(params) === '{}') {

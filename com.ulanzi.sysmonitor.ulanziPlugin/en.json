@@ -12,7 +12,7 @@
     },
     {
       "Name": "Disk Active",
-      "Tooltip": "Show disk active time with trend chart"
+      "Tooltip": "Show highest disk active time across all disks"
     },
     {
       "Name": "Disk IO",

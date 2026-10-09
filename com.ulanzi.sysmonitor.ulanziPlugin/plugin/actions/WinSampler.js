@@ -12,7 +12,8 @@ const QUERY_DEFS = {
     '  $o=Get-CimInstance -ClassName Win32_OperatingSystem'
   ],
   disk: [
-    '  $d=Get-CimInstance -ClassName Win32_LogicalDisk | Select-Object DeviceID,Size,FreeSpace'
+    '  $d=Get-CimInstance -ClassName Win32_LogicalDisk | Select-Object DeviceID,Size,FreeSpace',
+    "  $da=Get-CimInstance -ClassName Win32_PerfFormattedData_PerfDisk_PhysicalDisk | Select-Object @{Name='name';Expression={$_.Name}},@{Name='active';Expression={$_.PercentDiskTime}}"
   ],
   diskio: [
     "  $i=Get-CimInstance -ClassName Win32_PerfFormattedData_PerfDisk_PhysicalDisk | Where-Object{$_.Name -eq '_Total'}"
@@ -22,7 +23,7 @@ const QUERY_DEFS = {
   ]
 };
 
-const EMIT = '  [pscustomobject]@{cpu=$c.PercentProcessorTime;memFree=$o.FreePhysicalMemory;memTotal=$o.TotalVisibleMemorySize;disks=$d;dioR=$i.DiskReadBytesPerSec;dioW=$i.DiskWriteBytesPerSec;net=$n} | ConvertTo-Json -Compress -Depth 3';
+const EMIT = '  $diskActive=($da | Where-Object{$_.name -eq \'_Total\'} | Select-Object -ExpandProperty active); [pscustomobject]@{cpu=$c.PercentProcessorTime;memFree=$o.FreePhysicalMemory;memTotal=$o.TotalVisibleMemorySize;disks=$d;dioR=$i.DiskReadBytesPerSec;dioW=$i.DiskWriteBytesPerSec;net=$n;diskActive=$diskActive;diskActives=$da} | ConvertTo-Json -Compress -Depth 3';
 
 function buildScript(kinds) {
   const lines = ["$ErrorActionPreference='SilentlyContinue'", 'while($true){'];

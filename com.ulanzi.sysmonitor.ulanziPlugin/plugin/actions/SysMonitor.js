@@ -129,34 +129,23 @@ export default function SysMonitor(context, $UD) {
     return clamp(((total - free) / total) * 100);
   }
 
-  function normId(s) {
-    return String(s || '').toLowerCase().replace(/[\\/]+$/, '');
-  }
-
-  // Windows：active time，找名稱含目標磁碟機代號的實例如 1 C:
-  // 找不到退回 _Total；active time 可破百只保底不封頂
+  // Windows：全部實體碟 % Disk Time 取最高，排除 _Total
+  // active time 可破百只保底不封頂；無逐碟資料才退回 _Total
   function sampleDiskUse() {
     const s = sampler.get();
     let list = (s && s.diskActives) || [];
     if (!Array.isArray(list)) list = [];
-    const target = normId(settings.target || '').replace(/:$/, '');
-    let v = null;
-    if (list.length > 0) {
-      let hit = null;
-      if (target) {
-        hit = list.find(d => String(d.name || '').toLowerCase().includes(target));
-      }
-      if (!hit) {
-        hit = list.find(d => String(d.name || '').toLowerCase().includes('c:'))
-            || list[0];
-      }
-      if (hit) v = Number(hit.active);
+    let max = null;
+    for (const d of list) {
+      const name = String((d && d.name) || '');
+      if (name === '_Total') continue;
+      const v = Number(d && d.active);
+      if (!Number.isFinite(v)) continue;
+      if (max == null || v > max) max = v;
     }
-    if (v == null || !Number.isFinite(v)) {
-      const total = Number(s && s.diskActive);
-      v = Number.isFinite(total) ? total : 0;
-    }
-    return Math.max(0, v);
+    if (max != null) return Math.max(0, max);
+    const total = Number(s && s.diskActive);
+    return Math.max(0, Number.isFinite(total) ? total : 0);
   }
 
   function sampleDiskIO() {
@@ -280,24 +269,8 @@ export default function SysMonitor(context, $UD) {
   }
   async function readDiskUse() {
     if (IS_WIN) return sampleDiskUse();
-    const list = await si.fsSize().catch(() => []);
-    if (!list || list.length === 0) return 0;
-    const norm = s => String(s || '').toLowerCase().replace(/[\\/]+$/, '');
-    const target = norm(settings.target || '');
-    let pick = null;
-    if (target) {
-      pick = list.find(f => norm(f.mount) === target)
-          || list.find(f => norm(f.fs) === target);
-    }
-    if (!pick) {
-      pick = list.find(f => norm(f.mount) === 'c:')
-          || list.find(f => norm(f.fs) === 'c:')
-          || list.find(f => Number(f.size) > 0 && Number(f.use) > 0
-              && !String(f.mount || '').startsWith('/usr/')
-              && !String(f.mount || '').startsWith('/mnt/wsl'))
-          || list.find(f => Number(f.size) > 0);
-    }
-    return clamp(Number(pick && pick.use) || 0);
+    // 只支援 Windows，mac 不回空間使用率避免誤導
+    return 0;
   }
 
   async function readNet() {
