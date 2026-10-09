@@ -45,8 +45,9 @@ $UD.onRun(async (jsn) => {
   const context = jsn.context;
   if (!ACTION_CACHES[context]) ACTION_CACHES[context] = { showName: true };
   const showName = ACTION_CACHES[context].showName !== false;
+  const history = ACTION_CACHES[context].history || null;
   try {
-    const result = await cycleDefaultOutput();
+    const result = await cycleDefaultOutput({ history });
     if (!result.switched) {
       const label = result.from ? result.from.label : '';
       const cat = result.from ? result.from.cat : 'speaker';
@@ -55,6 +56,7 @@ $UD.onRun(async (jsn) => {
     }
     await $UD.setPathIcon(context, iconPathForCat(result.to.cat), showName && result.to.label ? result.to.label : '');
     ACTION_CACHES[context].lastLabel = result.to.label;
+    if (result.history) ACTION_CACHES[context].history = result.history;
   } catch (e) {
     console.log('[audiooutput] cycle failed:', e);
     try { $UD.logMessage(`cycle failed: ${e.message}`, 'error'); } catch { /* ignore */ }

@@ -117,12 +117,15 @@ function firstDifferent(list, excludeId) {
 }
 
 /**
- * Three-state resolution:
+ * Three-state resolution with history-aware bluetooth priority:
  * speaker -> bluetooth (else headphone) -> headphone (else speaker) -> speaker.
  * bluetooth-hf counts as bluetooth and is never selected as a target.
  * Unknown current state falls back to a generic next-device step.
+ * History override: when not currently on bluetooth, bluetooth candidates
+ * exist, and the last recorded transition neither came from nor went to
+ * bluetooth, prefer bluetooth first. No history means no override.
  */
-export function resolveTarget({ devices = [], defaultId = null } = {}) {
+export function resolveTarget({ devices = [], defaultId = null, history = null } = {}) {
   const by = { speaker: [], bluetooth: [], headphone: [] };
   for (const d of devices) {
     if (d.cat === 'bluetooth') by.bluetooth.push(d);
@@ -132,6 +135,17 @@ export function resolveTarget({ devices = [], defaultId = null } = {}) {
   const current = devices.find((d) => d.id === defaultId) || null;
   // bluetooth-hf counts as bluetooth and is never selected as a target.
   const cur = current ? current.cat : 'unknown';
+
+  // History override: not on bluetooth, bluetooth available, last transition
+  // untouched by bluetooth -> give bluetooth a chance first.
+  if (cur !== 'bluetooth' && cur !== 'bluetooth-hf' && history) {
+    const touchedBt = history.fromCat === 'bluetooth' || history.toCat === 'bluetooth'
+      || history.fromCat === 'bluetooth-hf' || history.toCat === 'bluetooth-hf';
+    if (!touchedBt) {
+      const bt = firstDifferent(by.bluetooth, defaultId);
+      if (bt) return bt;
+    }
+  }
 
   if (cur === 'speaker') {
     return firstDifferent(by.bluetooth, defaultId)
@@ -149,11 +163,11 @@ export function resolveTarget({ devices = [], defaultId = null } = {}) {
   return devices.find((d) => d.id !== defaultId) || null;
 }
 
-export async function cycleDefaultOutput() {
+export async function cycleDefaultOutput({ history = null } = {}) {
   const state = await getAudioState();
   const devices = state.devices.map((d) => ({ ...d, cat: classifyDevice(d), label: displayName(d) }));
   const from = devices.find((d) => d.id === state.defaultId) || null;
-  const target = resolveTarget({ devices, defaultId: state.defaultId });
+  const target = resolveTarget({ devices, defaultId: state.defaultId, history });
   if (!target) {
     return { switched: false, from, to: null, devices, defaultId: state.defaultId };
   }
@@ -163,5 +177,6 @@ export async function cycleDefaultOutput() {
     const after = await getAudioState();
     verified = after.defaultId === target.id;
   } catch { /* verification is best-effort */ }
-  return { switched: true, from, to: target, devices, defaultId: target.id, verified };
+  const nextHistory = { fromCat: from ? from.cat : 'unknown', toCat: target.cat };
+  return { switched: true, from, to: target, devices, defaultId: target.id, verified, history: nextHistory };
 }

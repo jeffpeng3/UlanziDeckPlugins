@@ -103,3 +103,33 @@ test('unknown current falls back to next device', () => {
   const t = resolveTarget({ devices, defaultId: '{0.0.0.00000000}.{deadbeef-0000-0000-0000-000000000000}' });
   assert.equal(t.id, BENQ.id);
 });
+
+test('headphone + non-bt history prefers bluetooth', () => {
+  const devices = [BENQ, BUDS, BUDS_HF, CORSAIR].map(withCat);
+  const t = resolveTarget({
+    devices,
+    defaultId: CORSAIR.id,
+    history: { fromCat: 'speaker', toCat: 'headphone' }
+  });
+  assert.equal(t.id, BUDS.id);
+});
+
+test('headphone + bt history keeps speaker', () => {
+  const devices = [BENQ, BUDS, BUDS_HF, CORSAIR].map(withCat);
+  const t = resolveTarget({
+    devices,
+    defaultId: CORSAIR.id,
+    history: { fromCat: 'bluetooth', toCat: 'headphone' }
+  });
+  assert.equal(t.id, BENQ.id);
+});
+
+test('on bluetooth history does not override', () => {
+  const devices = [BENQ, BUDS, BUDS_HF, CORSAIR].map(withCat);
+  const t = resolveTarget({
+    devices,
+    defaultId: BUDS.id,
+    history: { fromCat: 'speaker', toCat: 'speaker' }
+  });
+  assert.equal(t.id, CORSAIR.id);
+});
