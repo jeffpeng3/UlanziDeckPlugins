@@ -12,7 +12,7 @@ FILES := manifest.json package.json dist assets property-inspector libs bin en.j
 .PHONY: build package install verify clean helper bump release
 
 build:
-	npm install
+	npm ci
 	npm run build
 
 # Rust 查詢器跨編譯，失敗不擋打包（Node 會退回 powershell）

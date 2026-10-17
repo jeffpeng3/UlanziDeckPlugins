@@ -11,7 +11,7 @@ FILES := manifest.json package.json dist assets property-inspector libs scripts 
 .PHONY: build package install verify clean bump release
 
 build:
-	npm install
+	npm ci
 	npm run build
 
 package: build
