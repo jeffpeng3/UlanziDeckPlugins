@@ -1,13 +1,14 @@
 .DEFAULT_GOAL := package
 
 PLUGIN_NAME := $(notdir $(CURDIR))
+TAG_PREFIX := audiooutput
 VERSION := $(shell node -p "require('./manifest.json').Version")
 OUT := release/$(PLUGIN_NAME)-$(VERSION).zip
 INSTALL_DIR := /mnt/c/Users/user/AppData/Roaming/Ulanzi/UlanziDeck/Plugins/$(PLUGIN_NAME)
 
 FILES := manifest.json package.json dist assets property-inspector libs scripts en.json zh_CN.json zh_HK.json
 
-.PHONY: build package install verify clean
+.PHONY: build package install verify clean bump release
 
 build:
 	npm install
@@ -41,6 +42,15 @@ verify:
 	test -f dist/app.js
 	test -f scripts/Get-AudioState.ps1
 	test -f scripts/Set-DefaultAudioDevice.ps1
+
+# 改 manifest.json + 根 README 版本表，只動檔不 commit
+bump:
+	@test -n "$(V)" || { echo "usage: make bump V=1.0.1"; exit 1; }
+	@node ../scripts/bump.mjs "$(PLUGIN_NAME)" "$(V)"
+
+# 建 tag、push、發 GitHub release（附 zip）
+release:
+	@../scripts/release.sh "$(PLUGIN_NAME)" "$(TAG_PREFIX)"
 
 clean:
 	rm -rf release
