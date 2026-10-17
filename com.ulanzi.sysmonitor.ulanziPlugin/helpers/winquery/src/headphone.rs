@@ -409,12 +409,19 @@ impl HeadphoneMon {
         });
         let c = mon.clone();
         // 背景執行緒慢輪詢，UI 讀快取；電池變化慢，5 秒一輪
-        std::thread::spawn(move || loop {
-            let s = query_once(&c.target);
-            if let Ok(mut l) = c.last.lock() {
-                *l = s;
+        std::thread::spawn(move || {
+            // 啟動時就找不到目標 VID/PID，直接停止查詢，不再輪詢
+            if find_device_paths(&c.target).is_empty() {
+                debug_log("no headphone at startup, stop polling");
+                return;
             }
-            std::thread::sleep(Duration::from_secs(POLL_SECS));
+            loop {
+                let s = query_once(&c.target);
+                if let Ok(mut l) = c.last.lock() {
+                    *l = s;
+                }
+                std::thread::sleep(Duration::from_secs(POLL_SECS));
+            }
         });
         mon
     }
