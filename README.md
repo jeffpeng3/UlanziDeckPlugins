@@ -4,7 +4,7 @@ Plugins for [Ulanzi Deck](https://www.ulanzi.com/) (Ulanzi Studio ≥ 2.1.4).
 
 | Plugin | Version | Description | Platform |
 |---|---|---|---|
-| `com.ulanzi.audiooutput.ulanziPlugin` | 1.0.0 | Cycle default playback device: speaker → bluetooth → headphone | Windows 10+ |
+| `com.ulanzi.audiooutput.ulanziPlugin` | 1.1.0 | Cycle default playback device: speaker → bluetooth → headphone | Windows 10+ |
 | `com.ulanzi.sysmonitor.ulanziPlugin` | 1.8.0 | CPU / Memory / Disk / Network / GPU monitor with trend charts (D200) | Windows 10+ |
 
 ## Build
@@ -24,7 +24,10 @@ Notes:
 - `sysmonitor` ships a Rust helper (`helpers/winquery` → `bin/win-x64/winquery.exe`,
   cross-compiled to `x86_64-pc-windows-gnu`). If `cargo` is unavailable the build
   skips it and the plugin falls back to PowerShell.
-- `audiooutput` switches devices via `plugin/scripts/*.ps1` and has unit tests (`npm test`).
+- `audiooutput` ships a Rust helper (`helpers/audiohost` → `bin/win-x64/audiohost.exe`, same
+  cross-compile/fallback). It switches devices via `IPolicyConfig` and pushes default-device
+  changes via `IMMNotificationClient`; when the exe is unavailable it falls back to the
+  PowerShell host (`plugin/scripts/AudioHost.ps1`). Has unit tests (`npm test`).
 
 ## Release
 
