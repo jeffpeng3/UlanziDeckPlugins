@@ -1,10 +1,6 @@
-import si from 'systeminformation';
-import { execFile } from 'child_process';
 import { createSVGWindow } from 'svgdom'
 import { SVG, registerWindow } from '@svgdotjs/svg.js';
 import sampler from './WinSampler.js';
-
-const IS_WIN = process.platform === 'win32';
 
 const window = createSVGWindow()
 const document = window.document
@@ -68,13 +64,8 @@ export default function SysMonitor(context, $UD) {
   }
 
   function refreshIntervalMs() {
-    // Windows 讀快取不花 process，全部跟隨共用間隔
-    // 非 Windows 照舊，si 每次呼叫都會起 process所以保底
-    const floors = IS_WIN
-      ? {}
-      : { disk: 2000, diskio: 2000, net: 2000, gpu: 3000 };
-    const floor = floors[metricKey()] || 0;
-    return Math.max(Shared.ms, floor);
+    // 讀常駐採樣快取不花 process，全部跟隨共用間隔
+    return Shared.ms;
   }
 
   // 走勢固定顯示過去 60 秒，靠右對齊持續捲動
@@ -95,31 +86,26 @@ export default function SysMonitor(context, $UD) {
   }
 
   // 回傳陣列：單系列 1 個值，diskio/net 雙系列 2 個值
-  // Windows 讀常駐採樣快取，不起 process；其他系統走 si
+  // 讀常駐採樣快取，不起 process
   async function readStats() {
     const key = metricKey();
     if (key === 'cpu') {
-      if (IS_WIN) return [sampleCpu()];
-      const load = await si.currentLoad();
-      return [clamp(Number(load.currentLoad) || 0)];
+      return [sampleCpu()];
     }
     if (key === 'mem') {
-      if (IS_WIN) return [sampleMem()];
-      const mem = await si.mem();
-      if (mem.total) return [clamp(((mem.total - mem.available) / mem.total) * 100)];
-      return [0];
+      return [sampleMem()];
     }
     if (key === 'disk') {
-      return [await readDiskUse()];
+      return [readDiskUse()];
     }
     if (key === 'diskio') {
-      return await readDiskIO();
+      return readDiskIO();
     }
     if (key === 'net') {
-      return await readNet();
+      return readNet();
     }
     if (key === 'gpu') {
-      return [await readGpuUse()];
+      return [readGpuUse()];
     }
     return [0];
   }
@@ -183,33 +169,13 @@ export default function SysMonitor(context, $UD) {
     return [Math.max(0, rx), Math.max(0, tx)];
   }
 
-  // nvidia-smi 單一 process 最省，優先用；拿不到才用 si.graphics
-  async function readGpuUse() {
-    if (IS_WIN) {
-      const u = sampleGpu();
-      if (u != null) return u;
-    }
-    const want = (settings.gpu || '').trim();
-    // 有指定名稱關鍵字就走 si.graphics 才選得到卡
-    if (want && !/^\d+$/.test(want)) {
-      const u = await readGpuSi();
-      if (u != null) return u;
-    }
-    try {
-      const args = /^\d+$/.test(want)
-        ? ['-i', want, '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits']
-        : ['--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'];
-      const out = await execCmd('nvidia-smi', args);
-      const m = String(out).match(/(\d+(\.\d+)?)/);
-      if (m) return clamp(Number(m[1]));
-    } catch (e) {
-      console.log('==gpu nvidia-smi failed:', e && e.message);
-    }
-    const u = await readGpuSi();
+  // 讀 helper 的 NVML 使用率；沒資料回 0
+  function readGpuUse() {
+    const u = sampleGpu();
     return u != null ? u : 0;
   }
 
-  // helper 的 NVML 讀數，in-process 零開銷；沒資料回 null 走舊備援
+  // helper 的 NVML 讀數，in-process 零開銷
   function sampleGpu() {
     const s = sampler.get();
     let list = (s && s.gpus) || [];
@@ -226,78 +192,17 @@ export default function SysMonitor(context, $UD) {
     return Number.isFinite(u) ? clamp(u) : null;
   }
 
-  async function readGpuSi() {
-    try {
-      const g = await si.graphics().catch(() => null);
-      const ctrls = (g && g.controllers) || [];
-      const sel = pickGpu(ctrls);
-      if (sel) {
-        const u = Number(sel.utilizationGpu);
-        if (Number.isFinite(u)) return clamp(u);
-      }
-    } catch (e) {
-      console.log('==gpu si.graphics failed:', e && e.message);
-    }
-    return null;
+  // 讀常駐採樣快取
+  function readDiskIO() {
+    return sampleDiskIO();
   }
 
-  function pickGpu(ctrls) {
-    if (!ctrls || ctrls.length === 0) return null;
-    const want = (settings.gpu || '').trim().toLowerCase();
-    if (want) {
-      if (/^\d+$/.test(want) && ctrls[Number(want)]) return ctrls[Number(want)];
-      const hit = ctrls.find(c =>
-        String(c.model || '').toLowerCase().includes(want) ||
-        String(c.name || '').toLowerCase().includes(want) ||
-        String(c.vendor || '').toLowerCase().includes(want));
-      if (hit) return hit;
-    }
-    return ctrls.find(c => Number.isFinite(Number(c.utilizationGpu)))
-        || ctrls[0];
+  function readDiskUse() {
+    return sampleDiskUse();
   }
 
-  // Windows 讀常駐採樣快取；si v5 的 disksIO 在 Windows 沒實作
-  // 非 Windows 用 si，_sec 為 null 代表還沒建立基準就等下次
-  async function readDiskIO() {
-    if (IS_WIN) return sampleDiskIO();
-    const io = await si.disksIO().catch(() => null);
-    if (!io || io.rIO_sec == null || io.wIO_sec == null) return [0, 0];
-    return [Math.max(0, Number(io.rIO_sec) || 0),
-            Math.max(0, Number(io.wIO_sec) || 0)];
-  }
-
-  function execCmd(file, args) {
-    return new Promise((resolve, reject) => {
-      execFile(file, args || [],
-        { timeout: 5000, windowsHide: true },
-        (err, stdout) => {
-          if (err) reject(err);
-          else resolve(String(stdout).trim());
-        });
-    });
-  }
-  async function readDiskUse() {
-    if (IS_WIN) return sampleDiskUse();
-    // 只支援 Windows，mac 不回空間使用率避免誤導
-    return 0;
-  }
-
-  async function readNet() {
-    if (IS_WIN) return sampleNet();
-    let list = await si.networkStats().catch(() => []);
-    if (!Array.isArray(list)) list = list ? [list] : [];
-    const iface = (settings.iface || '').trim().toLowerCase();
-    if (iface) {
-      list = list.filter(n => String(n.iface || '').toLowerCase() === iface);
-    } else {
-      list = list.filter(n => !n.internal && String(n.iface || '').toLowerCase() !== 'lo');
-    }
-    let rx = 0, tx = 0;
-    for (const n of list) {
-      rx += Number(n.rx_sec) || 0;
-      tx += Number(n.tx_sec) || 0;
-    }
-    return [Math.max(0, rx), Math.max(0, tx)];
+  function readNet() {
+    return sampleNet();
   }
 
   // batt 顯示保留：dongle 偶發靜默時沿用上次成功讀數（最多 120 秒），
@@ -324,7 +229,6 @@ export default function SysMonitor(context, $UD) {
   // 耳機電量：讀 helper 的 hp 快取；present=false 或沒啟動都回 null 畫 --
   // level 0 視為無效（錯位回覆的髒資料，真 0.x% 跟沒電沒區別）
   function readBatt() {
-    if (!IS_WIN) return null;
     const s = sampler.get();
     const hp = s && s.hp;
     if (!hp || !hp.present) return null;
@@ -349,7 +253,7 @@ export default function SysMonitor(context, $UD) {
     if (busy) return;
     busy = true;
     // 常駐採樣死掉超過 10 秒就重起，內有重試節流
-    if (IS_WIN && sampler.age() > 10000) sampler.start();
+    if (sampler.age() > 10000) sampler.start();
     try {
       // batt 走圓環專用畫法，不進走勢歷史；帶快取避免靜默時閃爍
       if (metricKey() === 'batt') {
@@ -624,7 +528,7 @@ export default function SysMonitor(context, $UD) {
       clearInterval(poll_timer);
       poll_timer = 0;
     }
-    if (IS_WIN && acquiredKind) {
+    if (acquiredKind) {
       sampler.release(acquiredKind);
       acquiredKind = null;
     }
@@ -634,7 +538,6 @@ export default function SysMonitor(context, $UD) {
   var acquiredKind = null;
 
   function ensureSampler() {
-    if (!IS_WIN) return;
     const k = metricKey();
     if (k === acquiredKind) return;
     if (acquiredKind) sampler.release(acquiredKind);
