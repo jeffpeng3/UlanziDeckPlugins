@@ -5,7 +5,7 @@ Plugins for [Ulanzi Deck](https://www.ulanzi.com/) (Ulanzi Studio ≥ 2.1.4).
 | Plugin | Version | Description | Platform |
 |---|---|---|---|
 | `com.ulanzi.audiooutput.ulanziPlugin` | 1.0.0 | Cycle default playback device: speaker → bluetooth → headphone | Windows 10+ |
-| `com.ulanzi.sysmonitor.ulanziPlugin` | 1.7.1 | CPU / Memory / Disk / Network / GPU monitor with trend charts (D200) | Windows 10+ |
+| `com.ulanzi.sysmonitor.ulanziPlugin` | 1.8.0 | CPU / Memory / Disk / Network / GPU monitor with trend charts (D200) | Windows 10+ |
 
 ## Build
 
