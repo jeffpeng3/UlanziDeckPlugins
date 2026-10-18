@@ -1,38 +1,84 @@
 import { UlanziApi } from './actions/ulanzi-api/index.js';
 import { cycleDefaultOutput, getAudioState, classifyDevice, displayName, iconPathForCat } from './actions/AudioSwitcher.js';
+import { prewarm, dispose, onEvent } from './actions/AudioHost.js';
 
 const ACTION_CACHES = {};
+const REFRESH_DEBOUNCE = 200;
+
+let lastDefaultId = null;
+let refreshTimer = null;
 
 const $UD = new UlanziApi();
 
 $UD.connect('com.ulanzi.ulanzistudio.audiooutput');
 $UD.onConnected(() => {
   console.log('[audiooutput] connected');
+  prewarm();
 });
+
+process.on('exit', () => { try { dispose(); } catch { /* ignore */ } });
+process.on('SIGINT', () => { try { dispose(); } catch { /* ignore */ } process.exit(0); });
+process.on('SIGTERM', () => { try { dispose(); } catch { /* ignore */ } process.exit(0); });
 
 function settingsOf(jsn) {
   const p = jsn.param || {};
   return { showName: p.showName === undefined ? true : p.showName !== false && p.showName !== 'off' };
 }
 
-async function pushStateToKey(context, showName) {
+async function currentSnapshot() {
+  const state = await getAudioState();
+  const current = state.devices.find((d) => d.id === state.defaultId) || null;
+  const cat = current ? classifyDevice(current) : 'speaker';
+  const label = current ? displayName({ ...current, cat }) : '';
+  return { defaultId: state.defaultId, cat, label };
+}
+
+async function applyToContext(context, snap) {
+  const showName = ACTION_CACHES[context] && ACTION_CACHES[context].showName !== false;
+  await $UD.setPathIcon(context, iconPathForCat(snap.cat), showName && snap.label ? snap.label : '');
+  if (ACTION_CACHES[context]) ACTION_CACHES[context].lastLabel = snap.label;
+}
+
+async function pushStateToKey(context) {
   try {
-    const state = await getAudioState();
-    const current = state.devices.find((d) => d.id === state.defaultId) || null;
-    const cat = current ? classifyDevice(current) : 'speaker';
-    const label = current ? displayName({ ...current, cat }) : '';
-    await $UD.setPathIcon(context, iconPathForCat(cat), showName && label ? label : '');
-    ACTION_CACHES[context] = { ...(ACTION_CACHES[context] || {}), lastLabel: label };
+    const snap = await currentSnapshot();
+    lastDefaultId = snap.defaultId;
+    await applyToContext(context, snap);
   } catch (e) {
     console.log('[audiooutput] pushStateToKey failed:', e.message);
   }
 }
 
+// 系統自動切換預設裝置時，host 會推 defaultChanged，這裡重讀並更新所有 key。
+async function refreshFromHost() {
+  refreshTimer = null;
+  try {
+    const snap = await currentSnapshot();
+    if (snap.defaultId === lastDefaultId) return;
+    lastDefaultId = snap.defaultId;
+    for (const context of Object.keys(ACTION_CACHES)) {
+      try { await applyToContext(context, snap); } catch { /* keep other keys */ }
+    }
+  } catch (e) {
+    console.log('[audiooutput] refresh failed:', e.message);
+  }
+}
+
+function scheduleRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(refreshFromHost, REFRESH_DEBOUNCE);
+}
+
+onEvent((evt) => {
+  if (evt.event === 'defaultChanged') scheduleRefresh();
+  else if (evt.event === 'notifierError') console.log('[audiooutput] notifier error:', evt.error);
+});
+
 $UD.onAdd((jsn) => {
   const context = jsn.context;
   if (!ACTION_CACHES[context]) ACTION_CACHES[context] = {};
   Object.assign(ACTION_CACHES[context], settingsOf(jsn));
-  pushStateToKey(context, ACTION_CACHES[context].showName !== false);
+  pushStateToKey(context);
 });
 
 $UD.onSetActive((jsn) => {
@@ -48,6 +94,7 @@ $UD.onRun(async (jsn) => {
   const history = ACTION_CACHES[context].history || null;
   try {
     const result = await cycleDefaultOutput({ history });
+    lastDefaultId = result.defaultId;
     if (!result.switched) {
       const label = result.from ? result.from.label : '';
       const cat = result.from ? result.from.cat : 'speaker';

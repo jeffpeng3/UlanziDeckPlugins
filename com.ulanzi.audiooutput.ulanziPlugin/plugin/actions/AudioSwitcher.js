@@ -1,71 +1,20 @@
-import { execFile } from 'node:child_process';
-import path from 'node:path';
-import fs from 'node:fs';
-import { Utils } from './ulanzi-api/index.js';
+import { request } from './AudioHost.js';
 
-const POWERSHELL = 'powershell.exe';
-const PS_BASE_ARGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'];
 const ID_PATTERN = /^\{0\.0\.0\.00000000\}\.\{[0-9a-fA-F-]+\}$/;
 
 // Generic adapter names: the interface name is useless, prefer DeviceDesc.
 const GENERIC_ADAPTER = /high definition audio|usb audio|realtek|intel ss?s?t? audio|amd high definition/i;
 
-function findScriptsDir() {
-  try {
-    const root = String(Utils.getPluginPath() || '').replace(/\\/g, '/').replace(/\/$/, '');
-    for (const cand of [`${root}/scripts`, `${root}/plugin/scripts`]) {
-      try {
-        if (cand && fs.existsSync(`${cand}/Get-AudioState.ps1`)) return cand;
-      } catch { /* ignore */ }
-    }
-  } catch { /* ignore */ }
-  return path.join(path.dirname(process.argv[1] || '.'), 'scripts');
-}
-
-function runPs(script, extraArgs = []) {
-  if (process.platform !== 'win32') {
-    return Promise.reject(new Error('Audio output switching is only supported on Windows.'));
-  }
-  const file = `${findScriptsDir()}/${script}`;
-  return new Promise((resolve, reject) => {
-    execFile(
-      POWERSHELL,
-      [...PS_BASE_ARGS, '-File', file, ...extraArgs],
-      { timeout: 25000, windowsHide: true, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) {
-          const detail = String(stderr || err.message || err).trim().slice(0, 500);
-          reject(new Error(`PowerShell ${script} failed: ${detail}`));
-          return;
-        }
-        resolve(String(stdout || '').replace(/^\uFEFF/, '').trim());
-      }
-    );
-  });
-}
-
 export async function getAudioState() {
-  const out = await runPs('Get-AudioState.ps1');
-  let state;
-  try {
-    state = JSON.parse(out);
-  } catch (e) {
-    throw new Error(`Cannot parse audio state: ${String(out).slice(0, 200)}`);
-  }
+  const state = await request('getState');
   if (!state || !Array.isArray(state.devices)) throw new Error('Invalid audio state payload.');
   return state;
 }
 
 export async function setDefaultDevice(id) {
   if (!ID_PATTERN.test(id)) throw new Error(`Invalid device id: ${id}`);
-  const out = await runPs('Set-DefaultAudioDevice.ps1', ['-DeviceId', id]);
-  let res;
-  try {
-    res = JSON.parse(out);
-  } catch (e) {
-    throw new Error(`Cannot parse switch result: ${String(out).slice(0, 200)}`);
-  }
-  if (!res || res.ok !== true) throw new Error(`Switch rejected: ${String(out).slice(0, 200)}`);
+  const res = await request('setDefault', { id });
+  if (!res || res.ok !== true) throw new Error(`Switch rejected: ${JSON.stringify(res)}`);
   return res;
 }
 
@@ -171,12 +120,9 @@ export async function cycleDefaultOutput({ history = null } = {}) {
   if (!target) {
     return { switched: false, from, to: null, devices, defaultId: state.defaultId };
   }
-  await setDefaultDevice(target.id);
-  let verified = false;
-  try {
-    const after = await getAudioState();
-    verified = after.defaultId === target.id;
-  } catch { /* verification is best-effort */ }
+  const res = await setDefaultDevice(target.id);
+  // The host reads the default back in the same process, so no extra round trip.
+  const verified = res.defaultId === target.id;
   const nextHistory = { fromCat: from ? from.cat : 'unknown', toCat: target.cat };
   return { switched: true, from, to: target, devices, defaultId: target.id, verified, history: nextHistory };
 }
